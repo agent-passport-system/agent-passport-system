@@ -76,3 +76,6 @@ jobs:
 
       - name: Test suite
         run: npm test
+
+      - name: Interop tests
+        run: npm run test:interop
