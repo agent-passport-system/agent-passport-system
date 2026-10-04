@@ -2,7 +2,7 @@ name: Probity receipt and JCS corpus
 
 on:
   push:
-    branches: [main, test/probity-jcs-corpus]
+    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: probityai/agent-evidence-vectors
-          ref: 87b0914b0889cf947403ab18053955b2279536d9
+          ref: afd5d4f059eace74cd9c6180915a471fec1c5aff
           path: source/probity-vectors
           persist-credentials: false
 
@@ -47,6 +47,12 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           package-manager-cache: false
+
+      - name: Check execution attribution
+        run: |
+          set -euo pipefail
+          mkdir -p retained
+          node --test source/probity-vectors/interop/aps-jcs/provenance.test.mjs 2>&1 | tee retained/provenance-tests.log
 
       - name: Install the locked APS dependencies
         working-directory: source/aps
