@@ -1,0 +1,85 @@
+name: Probity receipt and JCS corpus
+
+on:
+  push:
+    branches: [main, test/probity-jcs-corpus]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probity-jcs:
+    name: Probity receipt and JCS (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20', '22']
+    steps:
+      - name: Check out the APS candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          path: source/aps
+          persist-credentials: false
+
+      - name: Check out the pinned comparison dependency
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: probityai/agent-evidence-vectors
+          ref: 87b0914b0889cf947403ab18053955b2279536d9
+          path: source/probity-vectors
+          persist-credentials: false
+
+      - name: Check out the unchanged corpus and raw admission source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: probityai/jcs-admit
+          ref: ecc8b5ef4b380a2fe38e5079d128307a1c702717
+          path: source/jcs-admit
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+
+      - name: Install the locked APS dependencies
+        working-directory: source/aps
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Build the pinned admission dependency
+        run: |
+          set -euo pipefail
+          mkdir -p retained
+          rustup toolchain install 1.90.0 --profile minimal
+          cargo +1.90.0 build --locked --manifest-path source/probity-vectors/interop/aps-jcs/runner/Cargo.toml 2>&1 | tee retained/native-build.log
+          cargo +1.90.0 --version > retained/cargo-version.txt
+          rustc +1.90.0 --version > retained/rustc-version.txt
+
+      - name: Run the native receipt and JCS tests
+        working-directory: source/aps
+        run: |
+          set -euo pipefail
+          node --import ./node_modules/tsx/dist/loader.mjs --test tests/canonical-jcs.test.ts tests/canonical-jcs-lone-surrogate.test.ts tests/receipt-core-serialized.test.ts 2>&1 | tee ../../retained/aps-native-tests.log
+
+      - name: Compare the current APS candidate with the corpus
+        run: |
+          set -euo pipefail
+          node --import ./source/aps/node_modules/tsx/dist/loader.mjs source/probity-vectors/interop/aps-jcs/check.mjs \
+            --aps source/aps --jcs source/jcs-admit --candidate true \
+            --rust-bin source/probity-vectors/interop/aps-jcs/runner/target/debug/probity-aps-jcs-probe \
+            --output retained/comparison.json 2>&1 | tee retained/comparison.log
+          sha256sum retained/* > retained/SHA256SUMS
+
+      - name: Retain comparison evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: probity-aps-jcs-node-${{ matrix.node }}
+          path: retained/
+          if-no-files-found: error
