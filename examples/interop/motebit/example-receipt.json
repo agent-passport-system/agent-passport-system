@@ -1,0 +1,17 @@
+{
+  "completed_at": 1777109000246,
+  "device_id": "019dc3f3-6027-7d66-9e74-963310dee4d8",
+  "invocation_origin": "user-tap",
+  "memories_formed": 0,
+  "motebit_id": "019dc3f3-6027-73ca-b877-0cf9141c0b72",
+  "prompt_hash": "eb5911406dca1c164556323ca01280851745b5ccb8c352fb03c039bf247a5ddd",
+  "public_key": "cd7f51b9c11761ebde6e99d7ab095a5c86ebd4c0787a24d2c5f6bc797d4924aa",
+  "result": "Every motebit claim \u2014 receipts, credentials, settlement records \u2014 is independently verifiable by any third party from cryptographic primitives alone, with no relay contact required.",
+  "result_hash": "4a95faaea77fa8e5b6f87a76524375cad17e73ea7878fb5c1a6191b00606a528",
+  "signature": "lehVTUerbGsAUlQLMhVqWPjwXvdNyLBqG7JO0-PbbTfuXFjPWLS3_YqMYDY6Fq2orWu4wINwJrVKoSahnOGXDA",
+  "status": "completed",
+  "submitted_at": 1777109000245,
+  "suite": "motebit-jcs-ed25519-b64-v1",
+  "task_id": "019dc3f3-6035-7519-ad58-9dfce31f1f15",
+  "tools_used": []
+}
