@@ -1,0 +1,17 @@
+{
+  "task_id": "019dc500-0000-7000-a000-000000000001",
+  "motebit_id": "65b60673-d6ed-884b-b01c-2c222d82ada0",
+  "device_id": "019dc500-0000-7000-a000-0000000000de",
+  "invocation_origin": "user-tap",
+  "submitted_at": 1777109000245,
+  "completed_at": 1777109000246,
+  "status": "completed",
+  "result": "This receipt was signed by a key the motebit_id itself commits to. Anyone can confirm it in their own browser or terminal with @motebit/verifier and zero trust in any server.",
+  "tools_used": [],
+  "memories_formed": 0,
+  "prompt_hash": "da11b16fded865c8a8b6d3bf7290de1226a44feaaeaf12e750ee3b7c2cef70d6",
+  "result_hash": "351f81a5c5acaca7e08562929d9fa035f3c4fc9bf44d2704aafcd8e72ce7e4b9",
+  "public_key": "79b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad049664",
+  "suite": "motebit-jcs-ed25519-b64-v1",
+  "signature": "szMNTuOKyP8qlJ0ZiFyoRsJtYOjOJc12cU7lOurxTywSXMRoaFwYRMa0507KbPc-54dQ5wYsElDm_bN4inf4BA"
+}
