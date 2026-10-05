@@ -1,0 +1,13 @@
+{
+  "name": "aps-example-refund-exact-approval",
+  "private": true,
+  "type": "module",
+  "description": "Candidate admission check for one exact refund approval, built on agent-passport-system primitives (aeoess/agent-governance-vocabulary#193)",
+  "scripts": {
+    "test": "node --import tsx --test refund-cases.test.ts"
+  },
+  "dependencies": {
+    "agent-passport-system": "7.2.1",
+    "tsx": "4.23.15"
+  }
+}
