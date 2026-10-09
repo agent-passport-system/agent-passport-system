@@ -3,7 +3,7 @@
 // ══════════════════════════════════════════════════════════════════
 // Evidence Diversity & Confidence Scoring — Tests
 // ══════════════════════════════════════════════════════════════════
-// Validates: sybil resistance via diversity-weighted confidence,
+// Validates: diversity-weighted confidence over caller-supplied principal labels,
 // computeConfidence scoring, and diversity tracking in reputation updates.
 // ══════════════════════════════════════════════════════════════════
 
@@ -75,6 +75,25 @@ describe('Evidence Diversity — Confidence Scoring', () => {
     assert.ok(rep.mu > 40, `mu should be high from 100 successes, got ${rep.mu}`)
     assert.ok(rep.confidence! < 0.6,
       `Sybil pattern should yield low confidence despite high mu, got ${rep.confidence}`)
+  })
+
+  it('principal labels are caller-supplied: invented labels raise confidence, not mu or sigma (#210)', () => {
+    // updateReputationFromResult does not verify principalHash. This pins the documented limit:
+    // the same results under five invented labels give the same mu and sigma but higher confidence.
+    const run = (labels: number) => {
+      let rep = createScopedReputation('p1', 'a1', 'scope')
+      for (let i = 0; i < 40; i++) {
+        rep = updateReputationFromResult(rep, i % 10 !== 0, 'standard', { principalHash: `label-${i % labels}` })
+      }
+      return rep
+    }
+    const one = run(1)
+    const five = run(5)
+    assert.strictEqual(five.mu, one.mu)
+    assert.strictEqual(five.sigma, one.sigma)
+    assert.strictEqual(five.evidenceDiversity!.distinctPrincipals, 5)
+    assert.ok(five.confidence! > one.confidence!,
+      `invented labels should raise confidence (documented limit), got ${one.confidence} vs ${five.confidence}`)
   })
 
   it('healthy failure rate increases confidence', () => {
