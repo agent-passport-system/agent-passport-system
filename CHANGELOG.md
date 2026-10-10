@@ -2,6 +2,44 @@
 
 ## Unreleased
 
+**Frozen vectors for the legacy Action Receipt v1.1 surface, and errata for
+`docs/SPEC-v1.1.md`.** `fixtures/action-receipt-v1.1/` records twelve delegation cases
+and ten receipt cases from the pre-draft `Delegation` and `ActionReceipt` records,
+generated against `c31d94aa` (main after v7.2.1, delegation sources unchanged since
+that tag) with the write-boundary primitives `createDelegation` and `createReceipt`
+use and with `Date.now()` fixed at a stated instant. Each case names the function that
+produced its result, describes what that function checks and does not check, and
+states that no case establishes authorization. Issuance cases record their
+`subDelegate` or `createReceipt` inputs, and an accepted `createReceipt` output is
+compared with the case record, chain included. The errata list where the TypeScript
+SDK differs from the document, without changing the document's requirements: member
+names and shapes (the section 1.1 and 3.2 examples), `verifyReceipt` checking signature
+and version only, neither `verifyReceipt` nor `createReceipt` validating the receipt
+chain, the `maxDepth` default (written as 1, no ceiling at verification when absent,
+read as 0 by the Python SDK), the `>` depth comparison against section 5, the
+`fail_open` revocation default against section 2.3, and the section 4.2 example. No
+code change on the frozen surface. `recompute-independent.ts` recomputes the bytes,
+signatures and selected predicates with no SDK imports.
+`tests/v2/action-receipt-vectors.test.ts` runs the family in `npm test`.
+
+**Frozen vectors for `aps.agent-passport` 2.0.** `fixtures/agent-passport-v2/` records
+four valid cases and sixteen rejection or indeterminate cases for the draft-04 section
+3.1 record, generated against `c31d94aa` (main after v7.2.1, identity binding sources
+unchanged since that tag): preimage bytes, `passport_id`, signature, and the SDK's
+verification output, with a diagnostic `layers` view that is local to this family and
+not a format draft-04 requires. Five cases carry `sdk_observation` where the SDK output
+goes beyond the draft (unrecognised profile, key authority after a failed validity
+window, a key that is not found). Structural cases are re-sealed so only the named rule
+is broken. Deterministic keys derived from published labels, a frozen `now`, the key
+resolver as data, and a check that the resolver is asked at `issued_at`.
+`recompute-independent.ts` re-verifies every case with no SDK imports.
+`tests/v2/agent-passport-vectors.test.ts` runs the family in `npm test`. The record
+format and the verifier are unchanged. `issuePassportV2` and `verifyPassportV2` remain
+in-repo and are not exported from the package entry. Not covered and recorded as such:
+`verifyPassportV2` has no timestamp-evidence input, so a retired key returned for
+`issued_at` would be accepted on the claim alone, which draft-04 section 3.4 does not
+allow.
+
 **BREAKING: `computeExternalActionRefV1` accepts fewer inputs.** The external
 cross-ecosystem `action_ref` v1 helper (`action-ref-v1-jcs-sha256`) adds checks from the
 Domain paragraph of giskard09/argentum-core `docs/spec/action-ref.md` at commit

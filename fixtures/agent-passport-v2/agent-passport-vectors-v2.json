@@ -1,0 +1,893 @@
+{
+  "family": "agent-passport",
+  "version": "v2",
+  "record_type": "aps.agent-passport",
+  "record_version": "2.0",
+  "spec": "draft-pidlisnyi-aps-04 section 3.1 (Agent Passport) and 3.2 (Agent Identifiers)",
+  "module": "src/v2/identity-binding/passport.ts",
+  "generated_at": "2026-10-10",
+  "sdk_reference": {
+    "repository": "aeoess/agent-passport-system",
+    "release": "main after the v7.2.1 tag (git describe: v7.2.1-14-gc31d94a), unreleased",
+    "commit": "c31d94aad86713ae9b2e4cbc811deeab4b5d91ed",
+    "note": "Every value under cases[].verification was produced by the TypeScript reference implementation at this commit. The identity binding, canonicalization, crypto and type sources are unchanged between the v7.2.1 tag and this commit. The vector files are added on top of that commit, so the repository HEAD carrying them is a later one. At this commit issuePassportV2 and verifyPassportV2 are in-repo and tested but not exported from the package entry."
+  },
+  "canonicalization": "RFC 8785 JCS (src/core/canonical-jcs.ts): keys sorted as UTF-16 code unit sequences, no insignificant whitespace, an absent OPTIONAL member (display_name) omitted rather than written as null.",
+  "signature_algorithm": "Ed25519 (RFC 8032), deterministic, over the UTF-8 bytes of the domain-tagged preimage. Raw 64-byte signature as 128 lowercase hex.",
+  "public_key_encoding": "multibase base58btc (z prefix) of multicodec 0xed01 followed by the 32-byte Ed25519 public key. did:key identifiers are did:key: followed by the same multibase string.",
+  "preimage_encoding": "hex of the UTF-8 bytes. Each domain tag ends in one NUL byte, which is why these are recorded as hex rather than as text.",
+  "validity_interval": "issued_at <= now < expires_at, compared as canonical UTC millisecond strings.",
+  "determinism": "Ed25519 signing is deterministic and nothing here reads a clock or a random source, so re-running fixtures/agent-passport-v2/generate-fixtures.ts reproduces this file byte for byte. Keys are sha256 of \"agent-passport-system:agent-passport-vector:<label>\".",
+  "domain_tags": {
+    "passport_id": {
+      "text": "APS-PASSPORT-ID-V2\\0",
+      "hex": "4150532d50415353504f52542d49442d563200"
+    },
+    "signature": {
+      "text": "APS-PASSPORT-SIG-V2\\0",
+      "hex": "4150532d50415353504f52542d5349472d563200"
+    }
+  },
+  "keys": [
+    {
+      "label": "agent-key",
+      "seed_label": "agent-passport-system:agent-passport-vector:agent-key",
+      "seed_derivation": "sha256(utf8(seed_label)), the 32 bytes ARE the Ed25519 seed",
+      "private_key_hex": "9d2ab5617a99d468ca06b044cdefadaad14d2a12be0d1463b7144d908c7e9bda",
+      "public_key_hex": "b8d6c79dc8b0b3789e30bb1ad58eda5d7a80e8855c1f88c7bf38127a9e0b989f",
+      "public_key_multibase": "z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+      "did_key": "did:key:z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y"
+    },
+    {
+      "label": "other-key",
+      "seed_label": "agent-passport-system:agent-passport-vector:other-key",
+      "seed_derivation": "sha256(utf8(seed_label)), the 32 bytes ARE the Ed25519 seed",
+      "private_key_hex": "56b6ec35daf19616af8beb71162657741adb215c2bf3373d2d326913f46b2c15",
+      "public_key_hex": "e8ecf45bbd37d19c96cf2363723b4e4783e634e4df12d7030734a8b2d5e65a45",
+      "public_key_multibase": "z6Mkv8WCGiQk2EBnvh6DDofxcp28gHirqiDV7spy61PJkcQU",
+      "did_key": "did:key:z6Mkv8WCGiQk2EBnvh6DDofxcp28gHirqiDV7spy61PJkcQU"
+    },
+    {
+      "label": "web-agent-key",
+      "seed_label": "agent-passport-system:agent-passport-vector:web-agent-key",
+      "seed_derivation": "sha256(utf8(seed_label)), the 32 bytes ARE the Ed25519 seed",
+      "private_key_hex": "a3c93c768dd1b234819ae2e8a188e589ba91d6cac3ad1529be039492c5e36107",
+      "public_key_hex": "bcbbe2698d4c8ddc820e0eff360ccf3def61d0965bcee97ed5eb62d9c6e59945",
+      "public_key_multibase": "z6Mks9zrkZp8HrAqpdvxuLor27Mu7ZvyZXB3zCyXxaghvtha",
+      "did_key": "did:key:z6Mks9zrkZp8HrAqpdvxuLor27Mu7ZvyZXB3zCyXxaghvtha"
+    }
+  ],
+  "key_resolver": {
+    "description": "The resolver input the did:web cases were generated against, as data. Section 3.1 resolves verification_method at issued_at, and the SDK asks for { controller: agent_id, verification_method, at: issued_at } (recorded per case under resolver_requests). Look up the (controller, verification_method) pair. When no entry matches, answer not_found. When the entry's outcome is not resolved, answer that outcome with no key. When the entry has a window and at is outside valid_from <= at < valid_until, answer not_found. Otherwise answer public_key_hex. The did:web key window contains issued_at and not the verification instant, so resolving at the wrong time changes the outcome. Cases with resolver \"none\" are verified with no resolver supplied at all.",
+    "outcome_vocabulary": [
+      "resolved",
+      "not_found",
+      "ambiguous",
+      "malformed",
+      "unreachable",
+      "unsupported"
+    ],
+    "entries": [
+      {
+        "controller": "did:web:agents.example",
+        "verification_method": "did:web:agents.example#key-1",
+        "outcome": "resolved",
+        "public_key_hex": "bcbbe2698d4c8ddc820e0eff360ccf3def61d0965bcee97ed5eb62d9c6e59945",
+        "key_label": "web-agent-key"
+      },
+      {
+        "controller": "did:web:offline.example",
+        "verification_method": "did:web:offline.example#key-1",
+        "outcome": "unreachable"
+      }
+    ]
+  },
+  "layers_legend": {
+    "description": "`verification` records the SDK output at the pinned commit. `layers` is this fixture family's diagnostic schema. It describes the checks reached in this run and is not a reporting format or check order required by draft-04. not_checked means this run made no determination about that layer. Where layers.key_authority is not_checked, the key_authority value under verification is an SDK output produced without a key authority determination.",
+    "conformance_use": "A reader can compare its own outcome with `layers` without adopting the SDK code strings. Cases that carry sdk_observation record SDK outputs that draft-04 does not require, and an implementation that reports differently there is not nonconforming on these vectors alone. What every rejection or indeterminate case does establish is that the passport must not be admitted as valid.",
+    "structure": "the closed wire shape of section 3.1, including record_type, version, timestamp form, nonce length, DID syntax, verification_method prefix and the sorted unique capabilities array",
+    "passport_id": "sha256 of the passport_id domain tag and JCS(passport without passport_id and signature) equals passport_id",
+    "signature": "Ed25519 over the signature domain tag and JCS(passport without signature) verifies under public_key_multibase",
+    "validity_window": "issued_at <= now < expires_at",
+    "proof_of_possession": "true exactly when the signature verified",
+    "key_authority": "verified when the identifier commits to the key in the record (did:key) or the resolver returned that key. rejected when the identifier commits to, or the resolver returned, a different key. unresolved when no key was resolved for the method (no resolver supplied, or a resolver failure outcome such as not_found or unreachable). not_checked when this run stopped earlier."
+  },
+  "valid_cases_preimages": {
+    "valid-did-key-minimal": {
+      "passport_id_preimage_hex": "4150532d50415353504f52542d49442d5632007b226167656e745f6964223a226469643a6b65793a7a364d6b72746f316d7636393776707376793966547a6e3948394c4c6656685850624e366d736e634e485576626b3359222c22657870697265735f6174223a22323032372d31302d30315430303a30303a30302e3030305a222c226973737565645f6174223a22323032362d31302d30315430303a30303a30302e3030305a222c226e6f6e6365223a223030313132323333343435353636373738383939616162626363646465656666222c227075626c69635f6b65795f6d756c746962617365223a227a364d6b72746f316d7636393776707376793966547a6e3948394c4c6656685850624e366d736e634e485576626b3359222c227265636f72645f74797065223a226170732e6167656e742d70617373706f7274222c2273656c665f6173736572746564223a7b226361706162696c6974696573223a5b5d7d2c22766572696669636174696f6e5f6d6574686f64223a226469643a6b65793a7a364d6b72746f316d7636393776707376793966547a6e3948394c4c6656685850624e366d736e634e485576626b3359237a364d6b72746f316d7636393776707376793966547a6e3948394c4c6656685850624e366d736e634e485576626b3359222c2276657273696f6e223a22322e30227d",
+      "passport_id_preimage_source": "passport_id domain tag + JCS(passport without passport_id and signature)",
+      "signature_preimage_hex": "4150532d50415353504f52542d5349472d5632007b226167656e745f6964223a226469643a6b65793a7a364d6b72746f316d7636393776707376793966547a6e3948394c4c6656685850624e366d736e634e485576626b3359222c22657870697265735f6174223a22323032372d31302d30315430303a30303a30302e3030305a222c226973737565645f6174223a22323032362d31302d30315430303a30303a30302e3030305a222c226e6f6e6365223a223030313132323333343435353636373738383939616162626363646465656666222c2270617373706f72745f6964223a2234346337316431343136643530663036643833313435306263613433316435386331613061343934393864393033323330396663636530356133393235343262222c227075626c69635f6b65795f6d756c746962617365223a227a364d6b72746f316d7636393776707376793966547a6e3948394c4c6656685850624e366d736e634e485576626b3359222c227265636f72645f74797065223a226170732e6167656e742d70617373706f7274222c2273656c665f6173736572746564223a7b226361706162696c6974696573223a5b5d7d2c22766572696669636174696f6e5f6d6574686f64223a226469643a6b65793a7a364d6b72746f316d7636393776707376793966547a6e3948394c4c6656685850624e366d736e634e485576626b3359237a364d6b72746f316d7636393776707376793966547a6e3948394c4c6656685850624e366d736e634e485576626b3359222c2276657273696f6e223a22322e30227d",
+      "signature_preimage_source": "signature domain tag + JCS(passport without signature). passport_id IS inside these bytes",
+      "derived": {
+        "passport_id": "44c71d1416d50f06d831450bca431d58c1a0a49498d9032309fcce05a392542b",
+        "signature": "b0f8e245fd31343e31259e67e5334b20095fe56b58e73d6cf865908f06ad29d9950fce8bc35a7f0600478c8a933189bc2c190057295c7b46e51d84a959c5b907",
+        "public_key_hex": "b8d6c79dc8b0b3789e30bb1ad58eda5d7a80e8855c1f88c7bf38127a9e0b989f",
+        "signing_key_label": "agent-key"
+      }
+    },
+    "valid-did-key-with-self-asserted": {
+      "passport_id_preimage_hex": "4150532d50415353504f52542d49442d5632007b226167656e745f6964223a226469643a6b65793a7a364d6b72746f316d7636393776707376793966547a6e3948394c4c6656685850624e366d736e634e485576626b3359222c22657870697265735f6174223a22323032372d31302d30315430303a30303a30302e3030305a222c226973737565645f6174223a22323032362d31302d30315430303a30303a30302e3030305a222c226e6f6e6365223a226666656564646363626261613939383837373636353534343333323231313030222c227075626c69635f6b65795f6d756c746962617365223a227a364d6b72746f316d7636393776707376793966547a6e3948394c4c6656685850624e366d736e634e485576626b3359222c227265636f72645f74797065223a226170732e6167656e742d70617373706f7274222c2273656c665f6173736572746564223a7b226361706162696c6974696573223a5b22636f6d6d657263653a636865636b6f7574222c22646174613a72656164225d2c22646973706c61795f6e616d65223a22566563746f72204167656e74227d2c22766572696669636174696f6e5f6d6574686f64223a226469643a6b65793a7a364d6b72746f316d7636393776707376793966547a6e3948394c4c6656685850624e366d736e634e485576626b3359237a364d6b72746f316d7636393776707376793966547a6e3948394c4c6656685850624e366d736e634e485576626b3359222c2276657273696f6e223a22322e30227d",
+      "passport_id_preimage_source": "passport_id domain tag + JCS(passport without passport_id and signature)",
+      "signature_preimage_hex": "4150532d50415353504f52542d5349472d5632007b226167656e745f6964223a226469643a6b65793a7a364d6b72746f316d7636393776707376793966547a6e3948394c4c6656685850624e366d736e634e485576626b3359222c22657870697265735f6174223a22323032372d31302d30315430303a30303a30302e3030305a222c226973737565645f6174223a22323032362d31302d30315430303a30303a30302e3030305a222c226e6f6e6365223a226666656564646363626261613939383837373636353534343333323231313030222c2270617373706f72745f6964223a2266356538343632643261613866616338343831373838636332356563613764386665636136323034316331663063356363343832396534666130626333313035222c227075626c69635f6b65795f6d756c746962617365223a227a364d6b72746f316d7636393776707376793966547a6e3948394c4c6656685850624e366d736e634e485576626b3359222c227265636f72645f74797065223a226170732e6167656e742d70617373706f7274222c2273656c665f6173736572746564223a7b226361706162696c6974696573223a5b22636f6d6d657263653a636865636b6f7574222c22646174613a72656164225d2c22646973706c61795f6e616d65223a22566563746f72204167656e74227d2c22766572696669636174696f6e5f6d6574686f64223a226469643a6b65793a7a364d6b72746f316d7636393776707376793966547a6e3948394c4c6656685850624e366d736e634e485576626b3359237a364d6b72746f316d7636393776707376793966547a6e3948394c4c6656685850624e366d736e634e485576626b3359222c2276657273696f6e223a22322e30227d",
+      "signature_preimage_source": "signature domain tag + JCS(passport without signature). passport_id IS inside these bytes",
+      "derived": {
+        "passport_id": "f5e8462d2aa8fac8481788cc25eca7d8feca62041c1f0c5cc4829e4fa0bc3105",
+        "signature": "7d898a774fba741aac1e28afd5e1dfc16fdc7d1395db9b650dbbe8108e5efc6781971e8450dde37bd92587d8e3ce68e08ccb98729d46964c663125540344a80f",
+        "public_key_hex": "b8d6c79dc8b0b3789e30bb1ad58eda5d7a80e8855c1f88c7bf38127a9e0b989f",
+        "signing_key_label": "agent-key"
+      }
+    },
+    "valid-did-web-resolved": {
+      "passport_id_preimage_hex": "4150532d50415353504f52542d49442d5632007b226167656e745f6964223a226469643a7765623a6167656e74732e6578616d706c65222c22657870697265735f6174223a22323032372d31302d30315430303a30303a30302e3030305a222c226973737565645f6174223a22323032362d31302d30315430303a30303a30302e3030305a222c226e6f6e6365223a223031323334353637383961626364656630313233343536373839616263646566222c227075626c69635f6b65795f6d756c746962617365223a227a364d6b73397a726b5a70384872417170647678754c6f7232374d75375a76795a5842337a4379587861676876746861222c227265636f72645f74797065223a226170732e6167656e742d70617373706f7274222c2273656c665f6173736572746564223a7b226361706162696c6974696573223a5b5d7d2c22766572696669636174696f6e5f6d6574686f64223a226469643a7765623a6167656e74732e6578616d706c65236b65792d31222c2276657273696f6e223a22322e30227d",
+      "passport_id_preimage_source": "passport_id domain tag + JCS(passport without passport_id and signature)",
+      "signature_preimage_hex": "4150532d50415353504f52542d5349472d5632007b226167656e745f6964223a226469643a7765623a6167656e74732e6578616d706c65222c22657870697265735f6174223a22323032372d31302d30315430303a30303a30302e3030305a222c226973737565645f6174223a22323032362d31302d30315430303a30303a30302e3030305a222c226e6f6e6365223a223031323334353637383961626364656630313233343536373839616263646566222c2270617373706f72745f6964223a2231373262353831343764643462636337383362386533376639333230373266356163366132376239313232343439303031623837626335653565666663623838222c227075626c69635f6b65795f6d756c746962617365223a227a364d6b73397a726b5a70384872417170647678754c6f7232374d75375a76795a5842337a4379587861676876746861222c227265636f72645f74797065223a226170732e6167656e742d70617373706f7274222c2273656c665f6173736572746564223a7b226361706162696c6974696573223a5b5d7d2c22766572696669636174696f6e5f6d6574686f64223a226469643a7765623a6167656e74732e6578616d706c65236b65792d31222c2276657273696f6e223a22322e30227d",
+      "signature_preimage_source": "signature domain tag + JCS(passport without signature). passport_id IS inside these bytes",
+      "derived": {
+        "passport_id": "172b58147dd4bcc783b8e37f932072f5ac6a27b9122449001b87bc5e5effcb88",
+        "signature": "ef1fb809356507dc53c80771ee5f2524dc708bde61e0fe52ee95846c50958294d18315c2570b1f92f8c444199f014c70babc86c8f94a7ef024f07048ae9a3900",
+        "public_key_hex": "bcbbe2698d4c8ddc820e0eff360ccf3def61d0965bcee97ed5eb62d9c6e59945",
+        "signing_key_label": "web-agent-key"
+      }
+    }
+  },
+  "cases": [
+    {
+      "name": "valid-did-key-minimal",
+      "description": "A did:key passport with no display_name and an empty capabilities array, verified inside its validity window. The identifier commits to the signing key, so key authority is verified without a resolver.",
+      "now": "2026-10-10T12:00:00.000Z",
+      "resolver": "none",
+      "passport": {
+        "record_type": "aps.agent-passport",
+        "version": "2.0",
+        "agent_id": "did:key:z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "verification_method": "did:key:z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y#z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "public_key_multibase": "z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "issued_at": "2026-10-01T00:00:00.000Z",
+        "expires_at": "2027-10-01T00:00:00.000Z",
+        "nonce": "00112233445566778899aabbccddeeff",
+        "self_asserted": {
+          "capabilities": []
+        },
+        "passport_id": "44c71d1416d50f06d831450bca431d58c1a0a49498d9032309fcce05a392542b",
+        "signature": "b0f8e245fd31343e31259e67e5334b20095fe56b58e73d6cf865908f06ad29d9950fce8bc35a7f0600478c8a933189bc2c190057295c7b46e51d84a959c5b907"
+      },
+      "verification": {
+        "state": "valid",
+        "code": "OK",
+        "proof_of_possession": true,
+        "key_authority": "verified"
+      },
+      "layers": {
+        "structure": "ok",
+        "passport_id": "ok",
+        "signature": "ok",
+        "validity_window": "ok",
+        "proof_of_possession": true,
+        "key_authority": "verified"
+      }
+    },
+    {
+      "name": "valid-did-key-with-self-asserted",
+      "description": "A did:key passport carrying display_name and two capabilities in UTF-8 byte order. Same outcome as the minimal case. This one pins the self_asserted shape and a non-empty capabilities array.",
+      "now": "2026-10-10T12:00:00.000Z",
+      "resolver": "none",
+      "passport": {
+        "record_type": "aps.agent-passport",
+        "version": "2.0",
+        "agent_id": "did:key:z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "verification_method": "did:key:z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y#z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "public_key_multibase": "z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "issued_at": "2026-10-01T00:00:00.000Z",
+        "expires_at": "2027-10-01T00:00:00.000Z",
+        "nonce": "ffeeddccbbaa99887766554433221100",
+        "self_asserted": {
+          "display_name": "Vector Agent",
+          "capabilities": [
+            "commerce:checkout",
+            "data:read"
+          ]
+        },
+        "passport_id": "f5e8462d2aa8fac8481788cc25eca7d8feca62041c1f0c5cc4829e4fa0bc3105",
+        "signature": "7d898a774fba741aac1e28afd5e1dfc16fdc7d1395db9b650dbbe8108e5efc6781971e8450dde37bd92587d8e3ce68e08ccb98729d46964c663125540344a80f"
+      },
+      "verification": {
+        "state": "valid",
+        "code": "OK",
+        "proof_of_possession": true,
+        "key_authority": "verified"
+      },
+      "layers": {
+        "structure": "ok",
+        "passport_id": "ok",
+        "signature": "ok",
+        "validity_window": "ok",
+        "proof_of_possession": true,
+        "key_authority": "verified"
+      }
+    },
+    {
+      "name": "valid-did-web-resolved",
+      "description": "A did:web passport. The identifier is not self-certifying, so key authority comes from the resolver table, which answers did:web:agents.example#key-1 with the signing key and has no retirement boundary. resolver_requests records the request the SDK made, at issued_at (2026-10-01T00:00:00.000Z).",
+      "now": "2026-10-10T12:00:00.000Z",
+      "resolver": "table",
+      "passport": {
+        "record_type": "aps.agent-passport",
+        "version": "2.0",
+        "agent_id": "did:web:agents.example",
+        "verification_method": "did:web:agents.example#key-1",
+        "public_key_multibase": "z6Mks9zrkZp8HrAqpdvxuLor27Mu7ZvyZXB3zCyXxaghvtha",
+        "issued_at": "2026-10-01T00:00:00.000Z",
+        "expires_at": "2027-10-01T00:00:00.000Z",
+        "nonce": "0123456789abcdef0123456789abcdef",
+        "self_asserted": {
+          "capabilities": []
+        },
+        "passport_id": "172b58147dd4bcc783b8e37f932072f5ac6a27b9122449001b87bc5e5effcb88",
+        "signature": "ef1fb809356507dc53c80771ee5f2524dc708bde61e0fe52ee95846c50958294d18315c2570b1f92f8c444199f014c70babc86c8f94a7ef024f07048ae9a3900"
+      },
+      "verification": {
+        "state": "valid",
+        "code": "OK",
+        "proof_of_possession": true,
+        "key_authority": "verified"
+      },
+      "layers": {
+        "structure": "ok",
+        "passport_id": "ok",
+        "signature": "ok",
+        "validity_window": "ok",
+        "proof_of_possession": true,
+        "key_authority": "verified"
+      },
+      "resolver_requests": [
+        {
+          "controller": "did:web:agents.example",
+          "verification_method": "did:web:agents.example#key-1",
+          "at": "2026-10-01T00:00:00.000Z"
+        }
+      ]
+    },
+    {
+      "name": "valid-at-issued-at",
+      "description": "The minimal passport verified at now = issued_at (2026-10-01T00:00:00.000Z). The interval is issued_at <= now < expires_at, so the first instant is inside it. Complements expired (now = expires_at) and not-yet-valid (one millisecond before issued_at).",
+      "now": "2026-10-01T00:00:00.000Z",
+      "resolver": "none",
+      "passport": {
+        "record_type": "aps.agent-passport",
+        "version": "2.0",
+        "agent_id": "did:key:z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "verification_method": "did:key:z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y#z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "public_key_multibase": "z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "issued_at": "2026-10-01T00:00:00.000Z",
+        "expires_at": "2027-10-01T00:00:00.000Z",
+        "nonce": "00112233445566778899aabbccddeeff",
+        "self_asserted": {
+          "capabilities": []
+        },
+        "passport_id": "44c71d1416d50f06d831450bca431d58c1a0a49498d9032309fcce05a392542b",
+        "signature": "b0f8e245fd31343e31259e67e5334b20095fe56b58e73d6cf865908f06ad29d9950fce8bc35a7f0600478c8a933189bc2c190057295c7b46e51d84a959c5b907"
+      },
+      "verification": {
+        "state": "valid",
+        "code": "OK",
+        "proof_of_possession": true,
+        "key_authority": "verified"
+      },
+      "layers": {
+        "structure": "ok",
+        "passport_id": "ok",
+        "signature": "ok",
+        "validity_window": "ok",
+        "proof_of_possession": true,
+        "key_authority": "verified"
+      }
+    },
+    {
+      "name": "tampered-display-name-stale-id",
+      "description": "display_name changed after issuance, passport_id and signature left as minted. The identifier is recomputed over the body before the signature is checked, so the mismatch is caught first and nothing about possession is established.",
+      "now": "2026-10-10T12:00:00.000Z",
+      "resolver": "none",
+      "passport": {
+        "record_type": "aps.agent-passport",
+        "version": "2.0",
+        "agent_id": "did:key:z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "verification_method": "did:key:z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y#z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "public_key_multibase": "z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "issued_at": "2026-10-01T00:00:00.000Z",
+        "expires_at": "2027-10-01T00:00:00.000Z",
+        "nonce": "ffeeddccbbaa99887766554433221100",
+        "self_asserted": {
+          "display_name": "Vector Agent (renamed)",
+          "capabilities": [
+            "commerce:checkout",
+            "data:read"
+          ]
+        },
+        "passport_id": "f5e8462d2aa8fac8481788cc25eca7d8feca62041c1f0c5cc4829e4fa0bc3105",
+        "signature": "7d898a774fba741aac1e28afd5e1dfc16fdc7d1395db9b650dbbe8108e5efc6781971e8450dde37bd92587d8e3ce68e08ccb98729d46964c663125540344a80f"
+      },
+      "verification": {
+        "state": "invalid",
+        "code": "PASSPORT_ID_MISMATCH",
+        "proof_of_possession": false,
+        "key_authority": "rejected"
+      },
+      "layers": {
+        "structure": "ok",
+        "passport_id": "mismatch",
+        "signature": "not_checked",
+        "validity_window": "not_checked",
+        "proof_of_possession": false,
+        "key_authority": "not_checked"
+      }
+    },
+    {
+      "name": "tampered-display-name-id-repaired",
+      "description": "The same display_name tamper with passport_id recomputed over the tampered body, carrying the signature minted for the original. passport_id is inside the signature preimage, so the identifier check passes and the signature fails.",
+      "now": "2026-10-10T12:00:00.000Z",
+      "resolver": "none",
+      "passport": {
+        "record_type": "aps.agent-passport",
+        "version": "2.0",
+        "agent_id": "did:key:z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "verification_method": "did:key:z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y#z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "public_key_multibase": "z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "issued_at": "2026-10-01T00:00:00.000Z",
+        "expires_at": "2027-10-01T00:00:00.000Z",
+        "nonce": "ffeeddccbbaa99887766554433221100",
+        "self_asserted": {
+          "display_name": "Vector Agent (renamed)",
+          "capabilities": [
+            "commerce:checkout",
+            "data:read"
+          ]
+        },
+        "passport_id": "32a86830c9d1d550c9f0c935349cc64369e8bf20495792af976766850e85af5c",
+        "signature": "7d898a774fba741aac1e28afd5e1dfc16fdc7d1395db9b650dbbe8108e5efc6781971e8450dde37bd92587d8e3ce68e08ccb98729d46964c663125540344a80f"
+      },
+      "verification": {
+        "state": "invalid",
+        "code": "PASSPORT_SIGNATURE_INVALID",
+        "proof_of_possession": false,
+        "key_authority": "rejected"
+      },
+      "layers": {
+        "structure": "ok",
+        "passport_id": "ok",
+        "signature": "invalid",
+        "validity_window": "not_checked",
+        "proof_of_possession": false,
+        "key_authority": "not_checked"
+      }
+    },
+    {
+      "name": "passport-id-wrong-signature-valid",
+      "description": "passport_id replaced with a value that is not the hash of the body, then the record re-signed with the agent key, so the signature is valid over the record as presented. Only the identifier rule is broken. A reader that checked the signature but not passport_id would admit it.",
+      "now": "2026-10-10T12:00:00.000Z",
+      "resolver": "none",
+      "passport": {
+        "record_type": "aps.agent-passport",
+        "version": "2.0",
+        "agent_id": "did:key:z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "verification_method": "did:key:z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y#z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "public_key_multibase": "z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "issued_at": "2026-10-01T00:00:00.000Z",
+        "expires_at": "2027-10-01T00:00:00.000Z",
+        "nonce": "00112233445566778899aabbccddeeff",
+        "self_asserted": {
+          "capabilities": []
+        },
+        "passport_id": "befae5d31a32c913ee6ea7adcb62c9538e0f5b173e89b97880a5191bc346d722",
+        "signature": "dc82d9f18c4c9dc23f4e66d56c6e712434b80f3b9f0b799fbeca738092ff55e22e23eb0e20eb79e433d2d0e1e44416958c3d69389f516461ffb7375887a6630a"
+      },
+      "verification": {
+        "state": "invalid",
+        "code": "PASSPORT_ID_MISMATCH",
+        "proof_of_possession": false,
+        "key_authority": "rejected"
+      },
+      "layers": {
+        "structure": "ok",
+        "passport_id": "mismatch",
+        "signature": "not_checked",
+        "validity_window": "not_checked",
+        "proof_of_possession": false,
+        "key_authority": "not_checked"
+      }
+    },
+    {
+      "name": "signed-by-other-key",
+      "description": "Body identical to valid-did-key-minimal, signature produced with other-key. The public key in the record is the one the signature is checked against, so the signature fails.",
+      "now": "2026-10-10T12:00:00.000Z",
+      "resolver": "none",
+      "passport": {
+        "record_type": "aps.agent-passport",
+        "version": "2.0",
+        "agent_id": "did:key:z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "verification_method": "did:key:z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y#z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "public_key_multibase": "z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "issued_at": "2026-10-01T00:00:00.000Z",
+        "expires_at": "2027-10-01T00:00:00.000Z",
+        "nonce": "00112233445566778899aabbccddeeff",
+        "self_asserted": {
+          "capabilities": []
+        },
+        "passport_id": "44c71d1416d50f06d831450bca431d58c1a0a49498d9032309fcce05a392542b",
+        "signature": "98342055f299c8fbf250351bc05b02d138bf8592215f5ea15243f38c9b8f7368f56c3d15464dba1cf9b94d968d823b7f657afaed3cefdbd927ef754b8a226d05"
+      },
+      "verification": {
+        "state": "invalid",
+        "code": "PASSPORT_SIGNATURE_INVALID",
+        "proof_of_possession": false,
+        "key_authority": "rejected"
+      },
+      "layers": {
+        "structure": "ok",
+        "passport_id": "ok",
+        "signature": "invalid",
+        "validity_window": "not_checked",
+        "proof_of_possession": false,
+        "key_authority": "not_checked"
+      }
+    },
+    {
+      "name": "public-key-not-the-did-key",
+      "description": "agent_id and verification_method name did:key:z6Mkrto1mv697vps... (agent-key) while public_key_multibase carries other-key, which also signed. passport_id and signature both recompute and proof of possession holds for other-key. The did:key identifier commits to agent-key, so key authority is rejected. This is the case a verifier that checks only the signature gets wrong.",
+      "now": "2026-10-10T12:00:00.000Z",
+      "resolver": "none",
+      "passport": {
+        "record_type": "aps.agent-passport",
+        "version": "2.0",
+        "agent_id": "did:key:z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "verification_method": "did:key:z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y#z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "public_key_multibase": "z6Mkv8WCGiQk2EBnvh6DDofxcp28gHirqiDV7spy61PJkcQU",
+        "issued_at": "2026-10-01T00:00:00.000Z",
+        "expires_at": "2027-10-01T00:00:00.000Z",
+        "nonce": "00112233445566778899aabbccddeeff",
+        "self_asserted": {
+          "capabilities": []
+        },
+        "passport_id": "455da44037a16164ed5481de3cba85538156adb630bae28266ae542c70054ecc",
+        "signature": "be974534837ac53eda957e38181ee8d4c72d1338cbe501ba9f2152a9375d035e8f7982b1594c2ac125def5a031c20348832a1fa0236d0a50123ad10900b23702"
+      },
+      "verification": {
+        "state": "invalid",
+        "code": "PASSPORT_KEY_AUTHORITY_REJECTED",
+        "proof_of_possession": true,
+        "key_authority": "rejected"
+      },
+      "layers": {
+        "structure": "ok",
+        "passport_id": "ok",
+        "signature": "ok",
+        "validity_window": "ok",
+        "proof_of_possession": true,
+        "key_authority": "rejected"
+      }
+    },
+    {
+      "name": "expired",
+      "description": "The minimal passport verified at now = expires_at (2027-10-01T00:00:00.000Z). The interval is issued_at <= now < expires_at, so the boundary instant is outside it. Signature verified, so possession is reported, and key authority is not reached.",
+      "now": "2027-10-01T00:00:00.000Z",
+      "resolver": "none",
+      "passport": {
+        "record_type": "aps.agent-passport",
+        "version": "2.0",
+        "agent_id": "did:key:z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "verification_method": "did:key:z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y#z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "public_key_multibase": "z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "issued_at": "2026-10-01T00:00:00.000Z",
+        "expires_at": "2027-10-01T00:00:00.000Z",
+        "nonce": "00112233445566778899aabbccddeeff",
+        "self_asserted": {
+          "capabilities": []
+        },
+        "passport_id": "44c71d1416d50f06d831450bca431d58c1a0a49498d9032309fcce05a392542b",
+        "signature": "b0f8e245fd31343e31259e67e5334b20095fe56b58e73d6cf865908f06ad29d9950fce8bc35a7f0600478c8a933189bc2c190057295c7b46e51d84a959c5b907"
+      },
+      "verification": {
+        "state": "invalid",
+        "code": "PASSPORT_NOT_CURRENT",
+        "proof_of_possession": true,
+        "key_authority": "rejected"
+      },
+      "layers": {
+        "structure": "ok",
+        "passport_id": "ok",
+        "signature": "ok",
+        "validity_window": "not_current",
+        "proof_of_possession": true,
+        "key_authority": "not_checked"
+      },
+      "sdk_observation": "key_authority \"rejected\" is what the SDK at the pinned commit returns when it stops at the validity window. It made no key authority determination (layers.key_authority is not_checked). Draft-04 does not require this output. An implementation that reports unresolved or not evaluated here is not nonconforming on this vector alone."
+    },
+    {
+      "name": "not-yet-valid",
+      "description": "The minimal passport verified one millisecond before issued_at (2026-09-30T23:59:59.999Z). Same outcome as expired.",
+      "now": "2026-09-30T23:59:59.999Z",
+      "resolver": "none",
+      "passport": {
+        "record_type": "aps.agent-passport",
+        "version": "2.0",
+        "agent_id": "did:key:z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "verification_method": "did:key:z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y#z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "public_key_multibase": "z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "issued_at": "2026-10-01T00:00:00.000Z",
+        "expires_at": "2027-10-01T00:00:00.000Z",
+        "nonce": "00112233445566778899aabbccddeeff",
+        "self_asserted": {
+          "capabilities": []
+        },
+        "passport_id": "44c71d1416d50f06d831450bca431d58c1a0a49498d9032309fcce05a392542b",
+        "signature": "b0f8e245fd31343e31259e67e5334b20095fe56b58e73d6cf865908f06ad29d9950fce8bc35a7f0600478c8a933189bc2c190057295c7b46e51d84a959c5b907"
+      },
+      "verification": {
+        "state": "invalid",
+        "code": "PASSPORT_NOT_CURRENT",
+        "proof_of_possession": true,
+        "key_authority": "rejected"
+      },
+      "layers": {
+        "structure": "ok",
+        "passport_id": "ok",
+        "signature": "ok",
+        "validity_window": "not_current",
+        "proof_of_possession": true,
+        "key_authority": "not_checked"
+      },
+      "sdk_observation": "key_authority \"rejected\" is what the SDK at the pinned commit returns when it stops at the validity window. It made no key authority determination (layers.key_authority is not_checked). Draft-04 does not require this output. An implementation that reports unresolved or not evaluated here is not nonconforming on this vector alone."
+    },
+    {
+      "name": "did-web-no-resolver",
+      "description": "The same passport as valid-did-web-resolved, verified with no resolver supplied. Possession holds. Key authority cannot be established either way, so the outcome is indeterminate, never valid and never invalid.",
+      "now": "2026-10-10T12:00:00.000Z",
+      "resolver": "none",
+      "passport": {
+        "record_type": "aps.agent-passport",
+        "version": "2.0",
+        "agent_id": "did:web:agents.example",
+        "verification_method": "did:web:agents.example#key-1",
+        "public_key_multibase": "z6Mks9zrkZp8HrAqpdvxuLor27Mu7ZvyZXB3zCyXxaghvtha",
+        "issued_at": "2026-10-01T00:00:00.000Z",
+        "expires_at": "2027-10-01T00:00:00.000Z",
+        "nonce": "0123456789abcdef0123456789abcdef",
+        "self_asserted": {
+          "capabilities": []
+        },
+        "passport_id": "172b58147dd4bcc783b8e37f932072f5ac6a27b9122449001b87bc5e5effcb88",
+        "signature": "ef1fb809356507dc53c80771ee5f2524dc708bde61e0fe52ee95846c50958294d18315c2570b1f92f8c444199f014c70babc86c8f94a7ef024f07048ae9a3900"
+      },
+      "verification": {
+        "state": "indeterminate",
+        "code": "PASSPORT_KEY_AUTHORITY_UNRESOLVED",
+        "proof_of_possession": true,
+        "key_authority": "unresolved"
+      },
+      "layers": {
+        "structure": "ok",
+        "passport_id": "ok",
+        "signature": "ok",
+        "validity_window": "ok",
+        "proof_of_possession": true,
+        "key_authority": "unresolved"
+      }
+    },
+    {
+      "name": "did-web-resolver-answers-other-key",
+      "description": "A did:web passport for did:web:agents.example signed with other-key, which is also the key in the record, so passport_id and signature recompute. The resolver answers did:web:agents.example#key-1 with web-agent-key, which is not the key in the record. Key authority is rejected.",
+      "now": "2026-10-10T12:00:00.000Z",
+      "resolver": "table",
+      "passport": {
+        "record_type": "aps.agent-passport",
+        "version": "2.0",
+        "agent_id": "did:web:agents.example",
+        "verification_method": "did:web:agents.example#key-1",
+        "public_key_multibase": "z6Mkv8WCGiQk2EBnvh6DDofxcp28gHirqiDV7spy61PJkcQU",
+        "issued_at": "2026-10-01T00:00:00.000Z",
+        "expires_at": "2027-10-01T00:00:00.000Z",
+        "nonce": "0123456789abcdef0123456789abcdef",
+        "self_asserted": {
+          "capabilities": []
+        },
+        "passport_id": "91a52406cbdf44cd22c0d068c16c83a87a91c6b86b1e0e66bfa1fe8f22e436da",
+        "signature": "a067b277363243e83678b0698edcec86384662516ec8f2c0c6d77d0aded57b172ef4287d7c917aff12f0cb00daabe7036ef0fd220b6c20b2984d5f9ad3aff504"
+      },
+      "verification": {
+        "state": "invalid",
+        "code": "PASSPORT_KEY_AUTHORITY_REJECTED",
+        "proof_of_possession": true,
+        "key_authority": "rejected"
+      },
+      "layers": {
+        "structure": "ok",
+        "passport_id": "ok",
+        "signature": "ok",
+        "validity_window": "ok",
+        "proof_of_possession": true,
+        "key_authority": "rejected"
+      },
+      "resolver_requests": [
+        {
+          "controller": "did:web:agents.example",
+          "verification_method": "did:web:agents.example#key-1",
+          "at": "2026-10-01T00:00:00.000Z"
+        }
+      ]
+    },
+    {
+      "name": "did-web-resolver-not-found",
+      "description": "A self-consistent did:web passport for did:web:unknown.example, which the resolver table does not carry. The resolver answers not_found. The SDK reports invalid (see sdk_observation).",
+      "now": "2026-10-10T12:00:00.000Z",
+      "resolver": "table",
+      "passport": {
+        "record_type": "aps.agent-passport",
+        "version": "2.0",
+        "agent_id": "did:web:unknown.example",
+        "verification_method": "did:web:unknown.example#key-1",
+        "public_key_multibase": "z6Mks9zrkZp8HrAqpdvxuLor27Mu7ZvyZXB3zCyXxaghvtha",
+        "issued_at": "2026-10-01T00:00:00.000Z",
+        "expires_at": "2027-10-01T00:00:00.000Z",
+        "nonce": "0123456789abcdef0123456789abcdef",
+        "self_asserted": {
+          "capabilities": []
+        },
+        "passport_id": "540e62b276ed3010d093beb2526e7b2a6eb0d17d5a6787c5a1009a19ea4a24d7",
+        "signature": "947e1a382eea32f1661ee04c8f31a3feb2781f14149bae47fe9d7dcea90fa3dec3522a0ac20bcb86b95fb479dc9387ab379d110925263fdecde605e2cc03f30d"
+      },
+      "verification": {
+        "state": "invalid",
+        "code": "PASSPORT_KEY_NOT_FOUND",
+        "proof_of_possession": true,
+        "key_authority": "rejected"
+      },
+      "layers": {
+        "structure": "ok",
+        "passport_id": "ok",
+        "signature": "ok",
+        "validity_window": "ok",
+        "proof_of_possession": true,
+        "key_authority": "unresolved"
+      },
+      "resolver_requests": [
+        {
+          "controller": "did:web:unknown.example",
+          "verification_method": "did:web:unknown.example#key-1",
+          "at": "2026-10-01T00:00:00.000Z"
+        }
+      ],
+      "sdk_observation": "invalid / PASSPORT_KEY_NOT_FOUND with key_authority \"rejected\" is what the SDK at the pinned commit returns when the resolver finds no key. Draft-04 section 3.5 maps a key that is not found to indeterminate for external and evidence signers, and section 3.1 assigns no outcome for the agent's own key. An implementation that reports indeterminate here is not nonconforming on this vector alone. layers.key_authority is unresolved: no key was resolved."
+    },
+    {
+      "name": "did-web-resolver-unreachable",
+      "description": "A self-consistent did:web passport for did:web:offline.example. The resolver answers unreachable. Nothing was learned about the key, so the outcome is indeterminate, not invalid.",
+      "now": "2026-10-10T12:00:00.000Z",
+      "resolver": "table",
+      "passport": {
+        "record_type": "aps.agent-passport",
+        "version": "2.0",
+        "agent_id": "did:web:offline.example",
+        "verification_method": "did:web:offline.example#key-1",
+        "public_key_multibase": "z6Mks9zrkZp8HrAqpdvxuLor27Mu7ZvyZXB3zCyXxaghvtha",
+        "issued_at": "2026-10-01T00:00:00.000Z",
+        "expires_at": "2027-10-01T00:00:00.000Z",
+        "nonce": "0123456789abcdef0123456789abcdef",
+        "self_asserted": {
+          "capabilities": []
+        },
+        "passport_id": "c2b82ac0668c878ef574d377eb18e6084e580e6c667f1890a1288960a3a35421",
+        "signature": "2ef6b14b378843dca0baf22d577c31368963c83c22a0e5d4748a88ccb90631459cfe2bef028b353ebcc7603ffc5cdf140ebcfaa588f82fc1364098656e87f70b"
+      },
+      "verification": {
+        "state": "indeterminate",
+        "code": "PASSPORT_KEY_UNREACHABLE",
+        "proof_of_possession": true,
+        "key_authority": "unresolved"
+      },
+      "layers": {
+        "structure": "ok",
+        "passport_id": "ok",
+        "signature": "ok",
+        "validity_window": "ok",
+        "proof_of_possession": true,
+        "key_authority": "unresolved"
+      },
+      "resolver_requests": [
+        {
+          "controller": "did:web:offline.example",
+          "verification_method": "did:web:offline.example#key-1",
+          "at": "2026-10-01T00:00:00.000Z"
+        }
+      ]
+    },
+    {
+      "name": "version-changed",
+      "description": "version changed to 2.1 on the minimal passport, then re-sealed (passport_id recomputed, re-signed by the agent key). The SDK at this commit reports a profile it does not recognise as malformed. Nothing past the schema is judged.",
+      "now": "2026-10-10T12:00:00.000Z",
+      "resolver": "none",
+      "passport": {
+        "record_type": "aps.agent-passport",
+        "version": "2.1",
+        "agent_id": "did:key:z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "verification_method": "did:key:z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y#z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "public_key_multibase": "z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "issued_at": "2026-10-01T00:00:00.000Z",
+        "expires_at": "2027-10-01T00:00:00.000Z",
+        "nonce": "00112233445566778899aabbccddeeff",
+        "self_asserted": {
+          "capabilities": []
+        },
+        "passport_id": "4c4a987644743b0be3ea46292c1b207836abe6e0b0c8674d2f6f712f5244d3ef",
+        "signature": "137b6103cad14a2aab74f25af701723f3817a9ede983fc9474ab4e53e128bddb9c10a0d24f43cd90c754ad4b627d234947f2c1c26c6a66993f5b0bbf62658402"
+      },
+      "verification": {
+        "state": "invalid",
+        "code": "PASSPORT_MALFORMED",
+        "proof_of_possession": false,
+        "key_authority": "rejected"
+      },
+      "layers": {
+        "structure": "rejected",
+        "passport_id": "not_checked",
+        "signature": "not_checked",
+        "validity_window": "not_checked",
+        "proof_of_possession": false,
+        "key_authority": "not_checked"
+      },
+      "sdk_observation": "invalid / PASSPORT_MALFORMED is what the SDK at the pinned commit returns for an unrecognised record_type or version. Draft-04 section 3.1 does not assign an outcome to an unrecognised profile, and other draft-04 record families report unsupported in this situation. An implementation that reports unsupported here is not nonconforming on this vector alone. What this vector does establish is that the record must not be admitted."
+    },
+    {
+      "name": "record-type-changed",
+      "description": "record_type changed to aps.passport, then re-sealed. Same early stop as version-changed.",
+      "now": "2026-10-10T12:00:00.000Z",
+      "resolver": "none",
+      "passport": {
+        "record_type": "aps.passport",
+        "version": "2.0",
+        "agent_id": "did:key:z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "verification_method": "did:key:z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y#z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "public_key_multibase": "z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "issued_at": "2026-10-01T00:00:00.000Z",
+        "expires_at": "2027-10-01T00:00:00.000Z",
+        "nonce": "00112233445566778899aabbccddeeff",
+        "self_asserted": {
+          "capabilities": []
+        },
+        "passport_id": "a2ef41daaeb964a940d82989bd6346d59b40bf630a7e83cb6e174cb748e7fb28",
+        "signature": "d1cb1676c104580805941aa9af0fbaefa22ff720c41b158e7626389e2d39960c861bc39947eb744aeb0242093604d0bcd3c8df8dc217c7660995570c29ae980a"
+      },
+      "verification": {
+        "state": "invalid",
+        "code": "PASSPORT_MALFORMED",
+        "proof_of_possession": false,
+        "key_authority": "rejected"
+      },
+      "layers": {
+        "structure": "rejected",
+        "passport_id": "not_checked",
+        "signature": "not_checked",
+        "validity_window": "not_checked",
+        "proof_of_possession": false,
+        "key_authority": "not_checked"
+      },
+      "sdk_observation": "invalid / PASSPORT_MALFORMED is what the SDK at the pinned commit returns for an unrecognised record_type or version. Draft-04 section 3.1 does not assign an outcome to an unrecognised profile, and other draft-04 record families report unsupported in this situation. An implementation that reports unsupported here is not nonconforming on this vector alone. What this vector does establish is that the record must not be admitted."
+    },
+    {
+      "name": "capabilities-unsorted",
+      "description": "self_asserted.capabilities in the wrong order on the with-self-asserted passport, then re-sealed. Section 3.1 requires a UTF-8-byte-sorted unique array, so the record is malformed although its identifier and signature recompute.",
+      "now": "2026-10-10T12:00:00.000Z",
+      "resolver": "none",
+      "passport": {
+        "record_type": "aps.agent-passport",
+        "version": "2.0",
+        "agent_id": "did:key:z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "verification_method": "did:key:z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y#z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "public_key_multibase": "z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "issued_at": "2026-10-01T00:00:00.000Z",
+        "expires_at": "2027-10-01T00:00:00.000Z",
+        "nonce": "ffeeddccbbaa99887766554433221100",
+        "self_asserted": {
+          "display_name": "Vector Agent",
+          "capabilities": [
+            "data:read",
+            "commerce:checkout"
+          ]
+        },
+        "passport_id": "151c162c3481bd387fd168c031501f66f35bc032bb0cebdd205272bdbf1cc4aa",
+        "signature": "e2f3d1a7dbea0241bb1d98755bb1df487af4d503a5b8e27ba3b29770aecfd01eb743c6344f9164771e00346b12d0d16845f336814cec07b5ec17f1c1d3b4930d"
+      },
+      "verification": {
+        "state": "invalid",
+        "code": "PASSPORT_MALFORMED",
+        "proof_of_possession": false,
+        "key_authority": "rejected"
+      },
+      "layers": {
+        "structure": "rejected",
+        "passport_id": "not_checked",
+        "signature": "not_checked",
+        "validity_window": "not_checked",
+        "proof_of_possession": false,
+        "key_authority": "not_checked"
+      }
+    },
+    {
+      "name": "principal-member-present",
+      "description": "A principal_id member added to the minimal passport, then re-sealed. Section 3.1 says a principal or owner identifier is not a passport member, and the wire object is closed, so the extra member is malformed although identifier and signature recompute.",
+      "now": "2026-10-10T12:00:00.000Z",
+      "resolver": "none",
+      "passport": {
+        "record_type": "aps.agent-passport",
+        "version": "2.0",
+        "agent_id": "did:key:z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "verification_method": "did:key:z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y#z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "public_key_multibase": "z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "issued_at": "2026-10-01T00:00:00.000Z",
+        "expires_at": "2027-10-01T00:00:00.000Z",
+        "nonce": "00112233445566778899aabbccddeeff",
+        "self_asserted": {
+          "capabilities": []
+        },
+        "passport_id": "d2509494815374092d9792e1b3099685a6042753df492a035dacb5270bba2276",
+        "signature": "91f2bdc64a5c9d218d542ccd135bae912097379e9afc2a791e253c8801ca56184c4641a5e7c57a35604fe2919e6dd997a712df32bef276736198e48957c70706",
+        "principal_id": "did:example:owner"
+      },
+      "verification": {
+        "state": "invalid",
+        "code": "PASSPORT_MALFORMED",
+        "proof_of_possession": false,
+        "key_authority": "rejected"
+      },
+      "layers": {
+        "structure": "rejected",
+        "passport_id": "not_checked",
+        "signature": "not_checked",
+        "validity_window": "not_checked",
+        "proof_of_possession": false,
+        "key_authority": "not_checked"
+      }
+    },
+    {
+      "name": "timestamp-without-milliseconds",
+      "description": "issued_at written as 2026-10-01T00:00:00Z, then re-sealed. Section 3.1 fixes the exact UTC millisecond form YYYY-MM-DDTHH:MM:SS.sssZ, so a seconds-precision timestamp is malformed although identifier and signature recompute.",
+      "now": "2026-10-10T12:00:00.000Z",
+      "resolver": "none",
+      "passport": {
+        "record_type": "aps.agent-passport",
+        "version": "2.0",
+        "agent_id": "did:key:z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "verification_method": "did:key:z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y#z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "public_key_multibase": "z6Mkrto1mv697vpsvy9fTzn9H9LLfVhXPbN6msncNHUvbk3Y",
+        "issued_at": "2026-10-01T00:00:00Z",
+        "expires_at": "2027-10-01T00:00:00.000Z",
+        "nonce": "00112233445566778899aabbccddeeff",
+        "self_asserted": {
+          "capabilities": []
+        },
+        "passport_id": "0f091620f705a50112fc8d99f17bc96534d5a751ed41f7d18cec93a10d421fa4",
+        "signature": "39377f02273afc5f6c007e3790be65c935b2fa1a068d8f86ffc1a2b90e7a83e8db1fcb678de6479357f4e177051587b127bbc1652ee1a07501ddc729c1125f05"
+      },
+      "verification": {
+        "state": "invalid",
+        "code": "PASSPORT_MALFORMED",
+        "proof_of_possession": false,
+        "key_authority": "rejected"
+      },
+      "layers": {
+        "structure": "rejected",
+        "passport_id": "not_checked",
+        "signature": "not_checked",
+        "validity_window": "not_checked",
+        "proof_of_possession": false,
+        "key_authority": "not_checked"
+      }
+    }
+  ],
+  "not_covered": [
+    "Legacy did:aps identifiers. Section 3.2 lets a compatibility verifier read them and says conforming new-write paths do not emit them. None is minted here.",
+    "Key rotation under an update-capable DID method (section 3.2 versionId or versionTime). The resolver table has one key per method and no validity window.",
+    "Selection of a retired key. Section 3.4 requires acceptable timestamp evidence before a retired key is selected, and an issuer's issued_at claim alone does not satisfy it. Without that evidence the outcome is indeterminate, reported as KEY_AMBIGUOUS. At the pinned commit verifyPassportV2 has no evidence input and admits whatever key the resolver returns for issued_at, so a resolver that returned a retired key would be accepted on the claim alone. No vector here exercises that case.",
+    "Principal binding and its revocation (sections 3.3 and following). Those are separate records with their own constructions.",
+    "JCS escaping of non-ASCII and control characters. Every string here is printable ASCII on purpose. Escaping is pinned by tests/cross-impl/jcs-test-vectors.json.",
+    "Small-order Ed25519 key material. src/crypto/keys.ts refuses it before the platform primitive runs. That is a property of the SDK verifier, not of these bytes."
+  ]
+}
