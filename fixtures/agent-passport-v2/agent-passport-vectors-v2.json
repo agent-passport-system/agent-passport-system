@@ -58,7 +58,7 @@
     }
   ],
   "key_resolver": {
-    "description": "The resolver input the did:web cases were generated against, as data. Section 3.1 resolves verification_method at issued_at, and the SDK asks for { controller: agent_id, verification_method, at: issued_at } (recorded per case under resolver_requests). Look up the (controller, verification_method) pair. When no entry matches, answer not_found. When the entry's outcome is not resolved, answer that outcome with no key. When the entry has a window and at is outside valid_from <= at < valid_until, answer not_found. Otherwise answer public_key_hex. The did:web key window contains issued_at and not the verification instant, so resolving at the wrong time changes the outcome. Cases with resolver \"none\" are verified with no resolver supplied at all.",
+    "description": "The resolver input the did:web cases were generated against, as data. Section 3.1 resolves verification_method at issued_at, and the SDK asks for { controller: agent_id, verification_method, at: issued_at } (recorded per case under resolver_requests). Look up the (controller, verification_method) pair. When no entry matches, answer not_found. When the entry's outcome is not resolved, answer that outcome with no key. Otherwise answer public_key_hex. No entry has a validity window, so the answer does not depend on at. The test checks that the SDK asks at issued_at. Cases with resolver \"none\" are verified with no resolver supplied at all.",
     "outcome_vocabulary": [
       "resolved",
       "not_found",
