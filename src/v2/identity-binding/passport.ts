@@ -116,11 +116,17 @@ export async function verifyPassportV2(
     at: passport.issued_at,
   })
   if (resolution.state !== 'resolved' || !resolution.public_key_hex) {
+    // Draft-04 section 3.4 routes a historical key-selection boundary that the
+    // evidence cannot settle through the ambiguous outcome of section 3.5, and
+    // that result is indeterminate: nothing was learned about key authority.
+    // The other unsuccessful outcomes keep their current mapping until their
+    // scope for the agent's own key is decided.
+    const unresolved = resolution.state === 'unreachable' || resolution.state === 'ambiguous'
     return {
-      state: resolution.state === 'unreachable' ? 'indeterminate' : 'invalid',
+      state: unresolved ? 'indeterminate' : 'invalid',
       code: `PASSPORT_KEY_${resolution.state.toUpperCase()}`,
       proof_of_possession: true,
-      key_authority: resolution.state === 'unreachable' ? 'unresolved' : 'rejected',
+      key_authority: unresolved ? 'unresolved' : 'rejected',
     }
   }
   if (resolution.public_key_hex !== publicKey) {

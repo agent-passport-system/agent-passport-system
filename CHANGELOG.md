@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+**`verifyPassportV2` reports an ambiguous historical key as indeterminate.** When the
+resolver answers `ambiguous`, the result is now `indeterminate` with
+`PASSPORT_KEY_AMBIGUOUS`, `proof_of_possession: true` and `key_authority: unresolved`,
+where it was `invalid` with `key_authority: rejected`. Draft-04 section 3.4 routes a
+key-selection boundary the evidence cannot settle through the ambiguous outcome of
+section 3.5, and that result is indeterminate. The passport is still not admitted.
+`not_found`, `malformed` and `unsupported` keep their mapping pending a scope decision.
+The frozen vectors in `fixtures/agent-passport-v2/` are unchanged, since no case uses an
+ambiguous resolver. `verifyPassportV2` is not exported from the package entry.
+
 **Correction to `fixtures/agent-passport-v2/`.** The `key_resolver.description` string in
 the vector file said the did:web key has a validity window containing `issued_at`. No
 entry has a window, which was removed before the family was merged in 949d77d. Only that
