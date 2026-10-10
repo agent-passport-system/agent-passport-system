@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+**Correction to `fixtures/agent-passport-v2/`.** The `key_resolver.description` string in
+the vector file said the did:web key has a validity window containing `issued_at`. No
+entry has a window, which was removed before the family was merged in 949d77d. Only that
+string changes. Every case, outcome and preimage is byte identical. New file sha256
+`9fce76dbf13de9749a2ef52c8dedecce08e4874da0203b39a7d941eb479b5ac5`.
+
 **Frozen vectors for the legacy Action Receipt v1.1 surface, and errata for
 `docs/SPEC-v1.1.md`.** `fixtures/action-receipt-v1.1/` records twelve delegation cases
 and ten receipt cases from the pre-draft `Delegation` and `ActionReceipt` records,
