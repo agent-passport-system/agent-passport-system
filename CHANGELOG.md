@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+**`verifyPassportV2` reports an ambiguous historical key as indeterminate.** When the
+resolver answers `ambiguous`, the result is now `indeterminate` with
+`PASSPORT_KEY_AMBIGUOUS`, `proof_of_possession: true` and `key_authority: unresolved`,
+where it was `invalid` with `key_authority: rejected`. Draft-04 section 3.4 routes a
+key-selection boundary the evidence cannot settle through the ambiguous outcome of
+section 3.5, and that result is indeterminate. The passport is still not admitted.
+`not_found`, `malformed` and `unsupported` keep their mapping pending a scope decision.
+The frozen vectors in `fixtures/agent-passport-v2/` are unchanged, since no case uses an
+ambiguous resolver. `verifyPassportV2` is not exported from the package entry.
+
 **Frozen vectors for the legacy Action Receipt v1.1 surface, and errata for
 `docs/SPEC-v1.1.md`.** `fixtures/action-receipt-v1.1/` records twelve delegation cases
 and ten receipt cases from the pre-draft `Delegation` and `ActionReceipt` records,
