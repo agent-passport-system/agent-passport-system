@@ -113,11 +113,17 @@ export async function verifyPassportV2(
       key_authority: 'unresolved',
     }
   }
-  const resolution = await options.resolve_key({
-    controller: passport.agent_id,
-    verification_method: passport.verification_method,
-    at: passport.issued_at,
-  })
+  // A resolver that throws is treated like an answer outside the resolver contract.
+  let resolution: unknown
+  try {
+    resolution = await options.resolve_key({
+      controller: passport.agent_id,
+      verification_method: passport.verification_method,
+      at: passport.issued_at,
+    })
+  } catch {
+    resolution = undefined
+  }
   // A resolution that produced no usable key leaves key authority unresolved: the
   // section 3.5 outcome mapping, applied to the agent's own key (see
   // resolution-outcome.ts). Only a resolved key that differs from the passport's key
@@ -131,7 +137,7 @@ export async function verifyPassportV2(
       key_authority: 'unresolved',
     }
   }
-  if (resolution.public_key_hex!.toLowerCase() !== publicKey) {
+  if ((resolution as { public_key_hex: string }).public_key_hex.toLowerCase() !== publicKey) {
     return {
       ...invalid('PASSPORT_KEY_AUTHORITY_REJECTED'),
       proof_of_possession: true,
@@ -142,25 +148,44 @@ export async function verifyPassportV2(
 }
 
 /**
- * An object whose record_type and version are both strings, but not the
- * "aps.agent-passport" / "2.0" pair this verifier implements, is unsupported and is not
- * judged against the 2.0 schema. That follows the rule draft-04 states for the other
- * record families that define one (delegation chain verification, the revocation record
- * format). A missing or non-string record_type or version, or anything that is not a
- * plain object, is left to validatePassport and stays malformed.
+ * Profile recognition before the 2.0 schema, the rule draft-04 states for the delegation
+ * and revocation record families. A string record_type other than "aps.agent-passport"
+ * is unsupported whatever else the object carries. With the recognised record_type, a
+ * string version other than "2.0" is unsupported. An unsupported record is not judged
+ * against the 2.0 schema and never reaches the key resolver.
+ *
+ * Everything else goes to validatePassport and stays PASSPORT_MALFORMED: a value that is
+ * not a plain JSON object, a missing or non-string record_type, the recognised
+ * record_type with a missing or non-string version, and a broken 2.0 shape. Both
+ * discriminators are read once, as own data properties, so an accessor cannot answer
+ * differently here and in the schema check. An accessor on either is malformed.
  */
 function unrecognisedProfile(value: unknown): IdentityVerificationResult | null {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return null
-  const recordType = (value as Record<string, unknown>).record_type
-  const version = (value as Record<string, unknown>).version
-  if (typeof recordType !== 'string' || typeof version !== 'string') return null
+  const prototype = Object.getPrototypeOf(value)
+  if (prototype !== Object.prototype && prototype !== null) return null
+  const recordType = ownData(value, 'record_type')
+  if (recordType === ACCESSOR) return invalid('PASSPORT_MALFORMED')
+  if (typeof recordType !== 'string') return null
   if (recordType !== 'aps.agent-passport') {
     return { state: 'unsupported', code: 'PASSPORT_UNSUPPORTED_RECORD_TYPE', proof_of_possession: false, key_authority: 'unresolved' }
   }
+  const version = ownData(value, 'version')
+  if (version === ACCESSOR) return invalid('PASSPORT_MALFORMED')
+  if (typeof version !== 'string') return null
   if (version !== '2.0') {
     return { state: 'unsupported', code: 'PASSPORT_UNSUPPORTED_VERSION', proof_of_possession: false, key_authority: 'unresolved' }
   }
   return null
+}
+
+const ACCESSOR = Symbol('accessor')
+
+/** The value of an own data property, undefined when absent, ACCESSOR for a getter or setter. */
+function ownData(value: object, key: string): unknown {
+  const descriptor = Object.getOwnPropertyDescriptor(value, key)
+  if (!descriptor) return undefined
+  return 'value' in descriptor ? descriptor.value : ACCESSOR
 }
 
 function validatePassport(value: unknown): PassportV2 {

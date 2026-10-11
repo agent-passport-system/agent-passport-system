@@ -2,13 +2,16 @@
 
 ## Unreleased
 
-**`verifyPassportV2` and `verifyPrincipalBindingV1` map key resolution failures to
-indeterminate or unsupported, and an unrecognised passport profile to unsupported.**
+**BREAKING for callers that deny only on `invalid`. `verifyPassportV2` and
+`verifyPrincipalBindingV1` map key resolution failures to indeterminate or unsupported, and
+an unrecognised passport profile to unsupported.**
 A resolver answer of `not_found`, `ambiguous`, `malformed` or `unreachable` now returns
 `indeterminate` with `key_authority: unresolved`, and `unsupported` (identifier scheme)
 returns `unsupported`. Codes keep the `PASSPORT_KEY_*` and `PRINCIPAL_BINDING_KEY_*` form.
-A `resolved` answer without a 64-hex key is `indeterminate` with `*_KEY_MALFORMED`, and an
-answer outside the resolver contract is `indeterminate` with `*_KEY_RESOLUTION_FAILED`.
+A `resolved` answer without a 64-hex key is `indeterminate` with `*_KEY_MALFORMED`. An
+answer outside the resolver contract, or a resolver that throws or rejects, is
+`indeterminate` with `*_KEY_RESOLUTION_FAILED`, which is not one of the section 3.5 outcome
+names.
 Previously `not_found`, `malformed` and `unsupported` returned `invalid` with
 `key_authority: rejected`, and for the principal binding `ambiguous` did too. This is the
 draft-04 section 3.5 mapping, which the delegation and revocation verifiers already apply
@@ -16,13 +19,24 @@ to the issuer's key, now applied to the agent's own key and the principal's key.
 that resolves and differs is still `invalid`. A resolved key is now compared
 case-insensitively, so an uppercase hex answer for the same key verifies.
 
-A passport whose `record_type` and `version` are strings but not `aps.agent-passport` /
-`2.0` now returns `unsupported` with `PASSPORT_UNSUPPORTED_RECORD_TYPE` or
-`PASSPORT_UNSUPPORTED_VERSION` (record type first) and is not judged against the 2.0
-schema, where it returned `invalid` / `PASSPORT_MALFORMED`. A missing or non-string
-discriminator, or the supported profile with a broken shape, stays `PASSPORT_MALFORMED`.
+A passport with a string `record_type` other than `aps.agent-passport` now returns
+`unsupported` / `PASSPORT_UNSUPPORTED_RECORD_TYPE`, whatever its `version` member holds.
+With that record type, a string `version` other than `2.0` returns `unsupported` /
+`PASSPORT_UNSUPPORTED_VERSION`. Both were `invalid` / `PASSPORT_MALFORMED`. An unsupported
+record is not judged against the 2.0 schema and never reaches the key resolver. A missing or
+non-string `record_type`, the recognised record type with a missing or non-string
+`version`, a discriminator defined as an accessor rather than a data property, and the 2.0
+profile with a broken shape stay `PASSPORT_MALFORMED`. A legacy v1 passport (no
+`record_type`) is therefore malformed, not unsupported.
 
-None of these results admits a record. A caller must accept only `state === 'valid'`. A
+The resolver contract is now documented on `HistoricalKeyResolutionResult`: `resolved` means
+the key authorized at `at`, and a resolver that cannot select by time answers `ambiguous`
+rather than today's key. A resolved key that differs is reported as an established failure
+only on that basis.
+
+None of these results admits a record. A caller must accept only `state === 'valid'`, and
+must not treat `unsupported` as a signal to try a weaker or legacy verifier unless the record
+carries that verifier's own discriminator, since an attacker chooses the profile string. A
 caller that treated every result other than `invalid` as acceptance was already wrong for
 `unreachable` and `ambiguous` and is now wrong for more cases. The frozen vectors in
 `fixtures/agent-passport-v2/` are unchanged. Three of their cases record the earlier output

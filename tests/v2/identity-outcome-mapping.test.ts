@@ -108,6 +108,15 @@ test('passport: an answer outside the resolver contract is indeterminate', async
   }
 })
 
+test('passport: a resolver that throws is indeterminate, not an exception', async () => {
+  const out = await verifyPassportV2(webCase.passport, { now: webCase.now, resolve_key: () => { throw new Error('boom') } })
+  assert.deepEqual(out, {
+    state: 'indeterminate', code: 'PASSPORT_KEY_RESOLUTION_FAILED', proof_of_possession: true, key_authority: 'unresolved',
+  })
+  const rejected = await verifyPassportV2(webCase.passport, { now: webCase.now, resolve_key: () => Promise.reject(new Error('boom')) })
+  assert.equal(rejected.code, 'PASSPORT_KEY_RESOLUTION_FAILED')
+})
+
 // ── Passport: profile ──
 
 const unsupportedType = { state: 'unsupported', code: 'PASSPORT_UNSUPPORTED_RECORD_TYPE', proof_of_possession: false, key_authority: 'unresolved' }
@@ -131,6 +140,36 @@ test('passport: an unrecognised profile is not judged against the 2.0 schema', a
   assert.deepEqual(await verifyPassportV2(extra, { now: webCase.now }), unsupportedVersion)
   const minimal = { record_type: 'aps.agent-passport', version: '9.9' }
   assert.deepEqual(await verifyPassportV2(minimal), unsupportedVersion)
+})
+
+test('passport: an unrecognised record_type is unsupported whatever the version member holds', async () => {
+  const { version: _v, ...noVersion } = webCase.passport
+  assert.deepEqual(await verifyPassportV2({ ...noVersion, record_type: 'other.record' }, { now: webCase.now }), unsupportedType)
+  assert.deepEqual(await verifyPassportV2({ ...webCase.passport, record_type: 'other.record', version: 2 }, { now: webCase.now }), unsupportedType)
+})
+
+test('passport: an unsupported profile never reaches the key resolver', async () => {
+  let calls = 0
+  const resolve_key = () => { calls += 1; return { state: 'resolved', public_key_hex: webKey } as HistoricalKeyResolutionResult }
+  await verifyPassportV2({ ...webCase.passport, version: '2.1' }, { now: webCase.now, resolve_key })
+  await verifyPassportV2({ ...webCase.passport, record_type: 'other.record' }, { now: webCase.now, resolve_key })
+  assert.equal(calls, 0)
+})
+
+test('passport: a legacy v1 passport shape (version, no record_type) is malformed', async () => {
+  const legacy = { agentId: 'agent-x', version: '1.0.0', publicKey: webKey, signature: '00'.repeat(64) }
+  assert.deepEqual(await verifyPassportV2(legacy), malformed)
+})
+
+test('passport: an accessor discriminator is malformed and is read at most once', async () => {
+  let reads = 0
+  const tricky = { ...webCase.passport }
+  Object.defineProperty(tricky, 'version', { enumerable: true, get: () => { reads += 1; return reads === 1 ? '2.0' : '9.9' } })
+  assert.deepEqual(await verifyPassportV2(tricky, { now: webCase.now }), malformed)
+  assert.equal(reads, 0)
+  const trickyType = { ...webCase.passport }
+  Object.defineProperty(trickyType, 'record_type', { enumerable: true, get: () => 'aps.agent-passport' })
+  assert.deepEqual(await verifyPassportV2(trickyType, { now: webCase.now }), malformed)
 })
 
 test('passport: a missing or non-string discriminator stays malformed', async () => {
@@ -209,5 +248,12 @@ for (const [state, code, expected] of [
 test('principal binding: resolved without usable key material is malformed key material', async () => {
   assert.deepEqual(await bindingWith({ state: 'resolved', public_key_hex: 'abc' }), {
     state: 'indeterminate', code: 'PRINCIPAL_BINDING_KEY_MALFORMED', proof_of_possession: false, key_authority: 'unresolved',
+  })
+})
+
+test('principal binding: a resolver that throws is indeterminate, not an exception', async () => {
+  const out = await verifyPrincipalBindingV1(binding, { now: '2026-07-17T00:00:00.000Z', resolve_key: () => { throw new Error('boom') } })
+  assert.deepEqual(out, {
+    state: 'indeterminate', code: 'PRINCIPAL_BINDING_KEY_RESOLUTION_FAILED', proof_of_possession: false, key_authority: 'unresolved',
   })
 })
