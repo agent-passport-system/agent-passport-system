@@ -309,6 +309,25 @@ test('principal binding: a missing or non-string discriminator stays malformed',
   }
 })
 
+test('a proxy whose prototype or descriptor trap throws is malformed, never an exception', async () => {
+  // Before the shared guard, verifyPassportV2 threw on both (since #221) and the reordered
+  // verifyPrincipalBindingV1 did too.
+  const hostile = [
+    new Proxy({}, { getPrototypeOf() { throw new Error('boom') } }),
+    new Proxy({}, { getOwnPropertyDescriptor() { throw new Error('boom') } }),
+    new Proxy({ ...binding }, { getOwnPropertyDescriptor() { throw new Error('boom') } }),
+  ]
+  for (const candidate of hostile) {
+    assert.deepEqual(await verifyPassportV2(candidate), malformed)
+    assert.deepEqual(await verifyPrincipalBindingV1(candidate, { ...pbNow, resolve_key: pbResolve }), pbMalformed)
+  }
+})
+
+test('principal binding: an unrecognised record_type is unsupported even with no version member', async () => {
+  const { version: _v, ...noVersion } = binding
+  assert.deepEqual(await verifyPrincipalBindingV1({ ...noVersion, record_type: 'other.record' }, { ...pbNow, resolve_key: pbResolve }), pbUnsupportedType)
+})
+
 test('principal binding: the supported profile with a broken shape stays malformed', async () => {
   assert.deepEqual(await verifyPrincipalBindingV1({ ...binding, extra: 1 }, { ...pbNow, resolve_key: pbResolve }), pbMalformed)
 })

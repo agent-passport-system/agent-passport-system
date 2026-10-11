@@ -2,15 +2,22 @@
 
 ## Unreleased
 
-**`verifyPrincipalBindingV1` reports an unrecognised profile as unsupported.** A string
-`record_type` other than `aps.principal-binding`, or that record type with a string
-`version` other than `1.0`, now returns `unsupported` with
-`PRINCIPAL_BINDING_UNSUPPORTED_RECORD_TYPE` or `PRINCIPAL_BINDING_UNSUPPORTED_VERSION`
-instead of `invalid` with `PRINCIPAL_BINDING_MALFORMED`. Such a record is not judged
-against the 1.0 schema and never reaches the key resolver. A missing or non-string
-discriminator, an accessor on either, and a broken 1.0 shape stay malformed. This is the
-rule `verifyPassportV2` follows since #221, and both now share one implementation in
-`profile-recognition.ts`. Passport results are unchanged. Neither result admits the record.
+**Principal binding verification now reports `unsupported` for an unrecognised record type
+or version instead of `PRINCIPAL_BINDING_MALFORMED`.** The record type is read first. A
+string `record_type` other than `aps.principal-binding` is
+`PRINCIPAL_BINDING_UNSUPPORTED_RECORD_TYPE` whatever `version` holds, including no
+`version` at all. With the recognised record type, a string `version` other than `1.0` is
+`PRINCIPAL_BINDING_UNSUPPORTED_VERSION`. Such a record is not judged against the 1.0 schema
+and never reaches the key resolver. A missing, non-string or accessor `record_type` stays
+malformed, and so does a missing, non-string or accessor `version` on the recognised record
+type, and a broken 1.0 shape. Key resolution and principal authority checks are unchanged.
+This is the rule `verifyPassportV2` follows since #221, and both now share one
+implementation in `profile-recognition.ts`.
+
+**`verifyPassportV2` no longer throws on a proxy whose prototype or property descriptor
+trap throws.** Since #221 such an input threw out of the verifier. It is now
+`PASSPORT_MALFORMED`. The principal binding verifier gets the same
+guard. Other passport results are unchanged.
 
 **`subDelegate` refuses a parent without a non-negative integer `maxDepth`, and
 `verifyDelegation` reads `maxDepth: null` as absent.** `subDelegate` used to mint a child
