@@ -16,6 +16,7 @@ import {
   assertPlainRecord,
   assertUtcMilliseconds,
 } from './validation.js'
+import { classifyResolution } from './resolution-outcome.js'
 
 const ID_DOMAIN = 'APS-PRINCIPAL-BINDING-REVOCATION-ID-V1\0'
 const SIGNATURE_DOMAIN = 'APS-PRINCIPAL-BINDING-REVOCATION-SIG-V1\0'
@@ -65,24 +66,38 @@ export async function verifyPrincipalBindingRevocationV1(
   if (digest(ID_DOMAIN + canonicalizeJCS(idForm)) !== revocation.revocation_id) {
     return invalid('PRINCIPAL_BINDING_REVOCATION_ID_MISMATCH')
   }
-  const resolution = await resolveKey({
-    controller: revocation.principal_id,
-    verification_method: revocation.verification_method,
-    at: revocation.revoked_at,
-  })
-  if (resolution.state !== 'resolved' || !resolution.public_key_hex) {
+  // Only the resolver call is guarded. A resolver that throws or rejects is treated like an
+  // answer outside the resolver contract. Anything else that throws is a defect, not a
+  // resolution failure, and is not caught here.
+  let resolution: unknown
+  try {
+    resolution = await resolveKey({
+      controller: revocation.principal_id,
+      verification_method: revocation.verification_method,
+      at: revocation.revoked_at,
+    })
+  } catch {
+    resolution = undefined
+  }
+  // The section 3.5 mapping verifyPassportV2 and verifyPrincipalBindingV1 apply (see
+  // resolution-outcome.ts). No key was resolved in these branches, so nothing about the
+  // revoker's authority is established either way: the revocation is not verified, and
+  // that is not evidence that the binding stays in force.
+  const classified = classifyResolution(resolution)
+  if (!classified.ok) {
     return {
-      state: resolution.state === 'unreachable' ? 'indeterminate' : 'invalid',
-      code: `PRINCIPAL_BINDING_REVOCATION_KEY_${resolution.state.toUpperCase()}`,
+      state: classified.failure.state,
+      code: `PRINCIPAL_BINDING_REVOCATION_KEY_${classified.failure.outcome}`,
       proof_of_possession: false,
-      key_authority: resolution.state === 'unreachable' ? 'unresolved' : 'rejected',
+      key_authority: 'unresolved',
     }
   }
+  // A resolved key that does not verify the signature is an established failure.
   const signatureForm = omit(revocation, ['signature'])
   if (!verify(
     SIGNATURE_DOMAIN + canonicalizeJCS(signatureForm),
     revocation.signature,
-    resolution.public_key_hex,
+    classified.public_key_hex,
   )) return invalid('PRINCIPAL_BINDING_REVOCATION_SIGNATURE_INVALID')
 
   return { state: 'valid', code: 'OK', proof_of_possession: true, key_authority: 'verified' }
