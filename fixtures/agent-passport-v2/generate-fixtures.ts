@@ -5,6 +5,11 @@
 //
 //   npx tsx fixtures/agent-passport-v2/generate-fixtures.ts
 //
+// It writes agent-passport-vectors-v2-r2.json, the second revision of the family.
+// The first revision, agent-passport-vectors-v2.json, is frozen: it records the SDK
+// at c31d94a and is never regenerated. To reproduce it byte for byte, run this
+// file as it was at commit 407ca2d5ad10c846860ad1b6faafc971ae9690e5.
+//
 // Nothing here reads a clock or a random source. Every input is fixed:
 //
 //   - Ed25519 seeds are sha256 of a published label, so anybody can re-derive
@@ -57,9 +62,10 @@ import type {
 // themselves are added on top of it, so the repository HEAD that carries this
 // file is a later commit. What this SHA pins is the implementation, not the
 // fixture.
-const SDK_COMMIT = 'c31d94aad86713ae9b2e4cbc811deeab4b5d91ed'
-const SDK_RELEASE = 'main after the v7.2.1 tag (git describe: v7.2.1-14-gc31d94a), unreleased'
-const GENERATED_AT = '2026-10-10'
+const SDK_COMMIT = '6a11df9ee51e63efcad1c2c30e236090cef14db7'
+const SDK_RELEASE = 'main after #221 and #222 (merge 6a11df9), unreleased'
+const GENERATED_AT = '2026-10-11'
+const FAMILY_REVISION = 2
 
 // ── the two domain tags, draft-04 section 3.1 ─────────────────────────────────
 // Re-typed here rather than imported: passport.ts keeps them module-private, and
@@ -242,7 +248,7 @@ for (const [name, passport] of [['minimal', minimal], ['with-self-asserted', wit
 // not a reporting format or check order that draft-04 requires. `not_checked`
 // means this run made no determination about that layer.
 interface Layers {
-  structure: 'ok' | 'rejected'
+  structure: 'ok' | 'rejected' | 'unsupported'
   passport_id: 'ok' | 'mismatch' | 'not_checked'
   signature: 'ok' | 'invalid' | 'not_checked'
   validity_window: 'ok' | 'not_current' | 'not_checked'
@@ -257,6 +263,9 @@ interface Layers {
  */
 function layersOf(result: IdentityVerificationResult): Layers {
   switch (result.code) {
+    case 'PASSPORT_UNSUPPORTED_RECORD_TYPE':
+    case 'PASSPORT_UNSUPPORTED_VERSION':
+      return { structure: 'unsupported', passport_id: 'not_checked', signature: 'not_checked', validity_window: 'not_checked', proof_of_possession: false, key_authority: 'not_checked' }
     case 'PASSPORT_MALFORMED':
       return { structure: 'rejected', passport_id: 'not_checked', signature: 'not_checked', validity_window: 'not_checked', proof_of_possession: false, key_authority: 'not_checked' }
     case 'PASSPORT_ID_MISMATCH':
@@ -296,9 +305,9 @@ interface Case {
 const SDK_OBSERVATION_KEY_AUTHORITY_AFTER_WINDOW =
   'key_authority "rejected" is what the SDK at the pinned commit returns when it stops at the validity window. It made no key authority determination (layers.key_authority is not_checked). Draft-04 does not require this output. An implementation that reports unresolved or not evaluated here is not nonconforming on this vector alone.'
 const SDK_OBSERVATION_KEY_NOT_FOUND =
-  'invalid / PASSPORT_KEY_NOT_FOUND with key_authority "rejected" is what the SDK at the pinned commit returns when the resolver finds no key. Draft-04 section 3.5 maps a key that is not found to indeterminate for external and evidence signers, and section 3.1 assigns no outcome for the agent\'s own key. An implementation that reports indeterminate here is not nonconforming on this vector alone. layers.key_authority is unresolved: no key was resolved.'
+  'indeterminate / PASSPORT_KEY_NOT_FOUND with key_authority "unresolved" is what the SDK at the pinned commit returns when the resolver finds no key. It applies the draft-04 section 3.5 mapping, written for external and evidence signers, to the agent\'s own key. Section 3.1 assigns no outcome for the agent\'s own key, so an implementation that reports invalid here is not nonconforming on this vector alone. The first revision of this family recorded invalid. layers.key_authority is unresolved: no key was resolved.'
 const SDK_OBSERVATION_UNKNOWN_PROFILE =
-  'invalid / PASSPORT_MALFORMED is what the SDK at the pinned commit returns for an unrecognised record_type or version. Draft-04 section 3.1 does not assign an outcome to an unrecognised profile, and other draft-04 record families report unsupported in this situation. An implementation that reports unsupported here is not nonconforming on this vector alone. What this vector does establish is that the record must not be admitted.'
+  'unsupported is what the SDK at the pinned commit returns for a string record_type or version it does not recognise, the rule draft-04 states for the delegation and revocation record families. Section 3.1 does not assign an outcome to an unrecognised profile, so an implementation that reports invalid or malformed here is not nonconforming on this vector alone. The first revision of this family recorded invalid / PASSPORT_MALFORMED. What this vector establishes is that the record must not be admitted.'
 
 // 4 — one field changed, passport_id and signature left as minted.
 const tamperedStale = asMutable(withSelfAsserted)
@@ -480,11 +489,11 @@ const cases: Case[] = [
   },
   {
     name: 'did-web-resolver-not-found',
-    description: `A self-consistent did:web passport for ${WEB_UNKNOWN}, which the resolver table does not carry. The resolver answers not_found. The SDK reports invalid (see sdk_observation).`,
+    description: `A self-consistent did:web passport for ${WEB_UNKNOWN}, which the resolver table does not carry. The resolver answers not_found. The SDK reports indeterminate (see sdk_observation).`,
     passport: asMutable(webUnknown),
     now: NOW,
     resolver: 'table',
-    expect: { state: 'invalid', code: 'PASSPORT_KEY_NOT_FOUND', proof_of_possession: true, key_authority: 'rejected' },
+    expect: { state: 'indeterminate', code: 'PASSPORT_KEY_NOT_FOUND', proof_of_possession: true, key_authority: 'unresolved' },
     sdk_observation: SDK_OBSERVATION_KEY_NOT_FOUND,
   },
   {
@@ -497,20 +506,20 @@ const cases: Case[] = [
   },
   {
     name: 'version-changed',
-    description: 'version changed to 2.1 on the minimal passport, then re-sealed (passport_id recomputed, re-signed by the agent key). The SDK at this commit reports a profile it does not recognise as malformed. Nothing past the schema is judged.',
+    description: 'version changed to 2.1 on the minimal passport, then re-sealed (passport_id recomputed, re-signed by the agent key). The SDK at this commit reports a version it does not recognise as unsupported. Nothing past the profile is judged.',
     passport: versionChanged,
     now: NOW,
     resolver: 'none',
-    expect: { state: 'invalid', code: 'PASSPORT_MALFORMED', proof_of_possession: false, key_authority: 'rejected' },
+    expect: { state: 'unsupported', code: 'PASSPORT_UNSUPPORTED_VERSION', proof_of_possession: false, key_authority: 'unresolved' },
     sdk_observation: SDK_OBSERVATION_UNKNOWN_PROFILE,
   },
   {
     name: 'record-type-changed',
-    description: 'record_type changed to aps.passport, then re-sealed. Same early stop as version-changed.',
+    description: 'record_type changed to aps.passport, then re-sealed. Reported as an unsupported record type, the same early stop as version-changed.',
     passport: recordTypeChanged,
     now: NOW,
     resolver: 'none',
-    expect: { state: 'invalid', code: 'PASSPORT_MALFORMED', proof_of_possession: false, key_authority: 'rejected' },
+    expect: { state: 'unsupported', code: 'PASSPORT_UNSUPPORTED_RECORD_TYPE', proof_of_possession: false, key_authority: 'unresolved' },
     sdk_observation: SDK_OBSERVATION_UNKNOWN_PROFILE,
   },
   {
@@ -629,11 +638,18 @@ const out = {
   spec: 'draft-pidlisnyi-aps-04 section 3.1 (Agent Passport) and 3.2 (Agent Identifiers)',
   module: 'src/v2/identity-binding/passport.ts',
   generated_at: GENERATED_AT,
+  family_revision: FAMILY_REVISION,
+  supersedes: {
+    file: 'fixtures/agent-passport-v2/agent-passport-vectors-v2.json',
+    commit: '407ca2d5ad10c846860ad1b6faafc971ae9690e5',
+    sha256: '9fce76dbf13de9749a2ef52c8dedecce08e4874da0203b39a7d941eb479b5ac5',
+    note: 'The first revision stays in the repository unchanged, recording the SDK at c31d94a. This revision records the SDK after #221. Passports, preimages, keys, resolver table and resolver requests are identical. Only did-web-resolver-not-found, version-changed and record-type-changed have a different description, verification and sdk_observation, and the two profile cases a different layers.structure. The metadata that describes those outcomes (layers_legend.structure, the retired-key entry under not_covered, sdk_reference) is updated to match.',
+  },
   sdk_reference: {
     repository: 'aeoess/agent-passport-system',
     release: SDK_RELEASE,
     commit: SDK_COMMIT,
-    note: 'Every value under cases[].verification was produced by the TypeScript reference implementation at this commit. The identity binding, canonicalization, crypto and type sources are unchanged between the v7.2.1 tag and this commit. The vector files are added on top of that commit, so the repository HEAD carrying them is a later one. At this commit issuePassportV2 and verifyPassportV2 are in-repo and tested but not exported from the package entry.',
+    note: 'Every value under cases[].verification was produced by the TypeScript reference implementation at this commit. The identity binding sources are unchanged between the #221 merge (f2b3c98) and this commit. The vector file is added on top of that commit, so the repository HEAD carrying it is a later one. At this commit issuePassportV2 and verifyPassportV2 are in-repo and tested but not exported from the package entry.',
   },
   canonicalization: 'RFC 8785 JCS (src/core/canonical-jcs.ts): keys sorted as UTF-16 code unit sequences, no insignificant whitespace, an absent OPTIONAL member (display_name) omitted rather than written as null.',
   signature_algorithm: 'Ed25519 (RFC 8032), deterministic, over the UTF-8 bytes of the domain-tagged preimage. Raw 64-byte signature as 128 lowercase hex.',
@@ -662,7 +678,7 @@ const out = {
   layers_legend: {
     description: '`verification` records the SDK output at the pinned commit. `layers` is this fixture family\'s diagnostic schema. It describes the checks reached in this run and is not a reporting format or check order required by draft-04. not_checked means this run made no determination about that layer. Where layers.key_authority is not_checked, the key_authority value under verification is an SDK output produced without a key authority determination.',
     conformance_use: 'A reader can compare its own outcome with `layers` without adopting the SDK code strings. Cases that carry sdk_observation record SDK outputs that draft-04 does not require, and an implementation that reports differently there is not nonconforming on these vectors alone. What every rejection or indeterminate case does establish is that the passport must not be admitted as valid.',
-    structure: 'the closed wire shape of section 3.1, including record_type, version, timestamp form, nonce length, DID syntax, verification_method prefix and the sorted unique capabilities array',
+    structure: 'the closed wire shape of section 3.1, including record_type, version, timestamp form, nonce length, DID syntax, verification_method prefix and the sorted unique capabilities array. unsupported when record_type is a string other than aps.agent-passport, or record_type is aps.agent-passport and version is a string other than 2.0. Nothing past that is judged.',
     passport_id: 'sha256 of the passport_id domain tag and JCS(passport without passport_id and signature) equals passport_id',
     signature: 'Ed25519 over the signature domain tag and JCS(passport without signature) verifies under public_key_multibase',
     validity_window: 'issued_at <= now < expires_at',
@@ -678,7 +694,7 @@ const out = {
   not_covered: [
     'Legacy did:aps identifiers. Section 3.2 lets a compatibility verifier read them and says conforming new-write paths do not emit them. None is minted here.',
     'Key rotation under an update-capable DID method (section 3.2 versionId or versionTime). The resolver table has one key per method and no validity window.',
-    'Selection of a retired key. Section 3.4 requires acceptable timestamp evidence before a retired key is selected, and an issuer\'s issued_at claim alone does not satisfy it. Without that evidence the outcome is indeterminate, reported as KEY_AMBIGUOUS. At the pinned commit verifyPassportV2 has no evidence input and admits whatever key the resolver returns for issued_at, so a resolver that returned a retired key would be accepted on the claim alone. No vector here exercises that case.',
+    'Selection of a retired key. Section 3.4 requires acceptable timestamp evidence before a retired key is selected, and an issuer\'s issued_at claim alone does not satisfy it. Without that evidence the outcome is indeterminate, reported as KEY_AMBIGUOUS. At the pinned commit verifyPassportV2 has no evidence input. HistoricalKeyResolutionResult documents that resolved means the key authorized at issued_at and that a resolver that cannot select by time answers ambiguous, so the evidence check rests with the resolver. No vector here exercises that case.',
     'Principal binding and its revocation (sections 3.3 and following). Those are separate records with their own constructions.',
     'JCS escaping of non-ASCII and control characters. Every string here is printable ASCII on purpose. Escaping is pinned by tests/cross-impl/jcs-test-vectors.json.',
     'Small-order Ed25519 key material. src/crypto/keys.ts refuses it before the platform primitive runs. That is a property of the SDK verifier, not of these bytes.',
@@ -686,6 +702,6 @@ const out = {
 }
 
 const dir = dirname(fileURLToPath(import.meta.url))
-const path = join(dir, 'agent-passport-vectors-v2.json')
+const path = join(dir, 'agent-passport-vectors-v2-r2.json')
 writeFileSync(path, JSON.stringify(out, null, 2) + '\n')
 process.stdout.write(`wrote ${observed.length} cases -> ${path}\n`)
