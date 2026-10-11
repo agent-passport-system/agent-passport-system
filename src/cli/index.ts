@@ -655,8 +655,8 @@ function cmdDelegate(): void {
   // negative duration, and it avoids setHours precisely so fractional hours survive.
   const hoursFlag = numericFlag('--hours', 'a finite number of hours',
     n => Number.isFinite(n))
-  // maxDepth has NO downstream validation in createDelegation, unlike spendLimit, so
-  // this is the only gate. A non-integer depth is meaningless for a hop count, and a
+  // createDelegation now refuses a malformed maxDepth too (#223), but this flag check runs
+  // first and gives the CLI's own message. A non-integer depth is meaningless for a hop count, and a
   // NaN depth serialized to `"maxDepth": null`, which chain verifiers read as no depth
   // ceiling at all: a typo REMOVED the limit instead of failing.
   const depthFlag = numericFlag('--depth', 'a non-negative integer',
