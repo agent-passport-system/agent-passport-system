@@ -3,7 +3,13 @@
 //
 // Independent recompute of the `aps.agent-passport` 2.0 vector family.
 //
-//   npx tsx fixtures/agent-passport-v2/recompute-independent.ts
+//   npx tsx fixtures/agent-passport-v2/recompute-independent.ts [vector file]
+//
+// With no argument it reads the second revision, agent-passport-vectors-v2-r2.json.
+// Pass agent-passport-vectors-v2.json to check the frozen first revision. The two
+// differ in one rule, read from the file's family_revision: from revision 2 a string
+// record_type other than aps.agent-passport, or a string version other than 2.0 with
+// that record type, is reported as structure unsupported instead of rejected.
 //
 // THIS FILE IMPORTS NOTHING FROM src/. Its only imports are node:crypto and
 // node:fs. Everything the SDK would have supplied is re-stated here from
@@ -168,7 +174,7 @@ function ed25519VerifyRaw(preimage: string, signatureHex: string, publicKeyHex: 
 
 // ── the vector file ───────────────────────────────────────────────────────────
 interface Layers {
-  structure: 'ok' | 'rejected'
+  structure: 'ok' | 'rejected' | 'unsupported'
   passport_id: 'ok' | 'mismatch' | 'not_checked'
   signature: 'ok' | 'invalid' | 'not_checked'
   validity_window: 'ok' | 'not_current' | 'not_checked'
@@ -184,6 +190,7 @@ interface ResolverEntry {
 }
 
 interface VectorFile {
+  family_revision?: number
   domain_tags: { passport_id: { hex: string }; signature: { hex: string } }
   key_resolver: { entries: ResolverEntry[] }
   valid_cases_preimages: Record<string, {
@@ -200,8 +207,9 @@ interface VectorFile {
   }>
 }
 
-const path = new URL('./agent-passport-vectors-v2.json', import.meta.url)
+const path = process.argv[2] ?? new URL('./agent-passport-vectors-v2-r2.json', import.meta.url)
 const vector = JSON.parse(readFileSync(path, 'utf8')) as VectorFile
+const PROFILE_RECOGNITION = (vector.family_revision ?? 1) >= 2
 
 let failures = 0
 function check(label: string, actual: unknown, expected: unknown): void {
@@ -283,6 +291,24 @@ function structureOk(p: Record<string, unknown>): boolean {
   return true
 }
 
+/**
+ * From revision 2: a string record_type other than aps.agent-passport, or that record
+ * type with a string version other than 2.0, is a profile this reader does not
+ * implement. Read from own data properties, before any other rule.
+ */
+function profileUnsupported(p: Record<string, unknown>): boolean {
+  if (typeof p !== 'object' || p === null || Array.isArray(p)) return false
+  const own = (key: string): unknown => {
+    const d = Object.getOwnPropertyDescriptor(p, key)
+    return d && 'value' in d ? d.value : undefined
+  }
+  const recordType = own('record_type')
+  if (typeof recordType !== 'string') return false
+  if (recordType !== 'aps.agent-passport') return true
+  const version = own('version')
+  return typeof version === 'string' && version !== '2.0'
+}
+
 // Section 3.1: resolve verification_method at issued_at.
 function resolve(controller: string, verificationMethod: string, at: string): { state: string; public_key_hex?: string } {
   const entry = vector.key_resolver.entries.find(
@@ -300,6 +326,7 @@ function verifyFromDraft(p: Record<string, unknown>, now: string, resolver: 'non
     structure: 'rejected', passport_id: 'not_checked', signature: 'not_checked',
     validity_window: 'not_checked', proof_of_possession: false, key_authority: 'not_checked',
   }
+  if (PROFILE_RECOGNITION && profileUnsupported(p)) return { ...stop, structure: 'unsupported' }
   if (!structureOk(p)) return stop
   stop.structure = 'ok'
   const idPreimage = ID_DOMAIN + jcs(without(p, ['passport_id', 'signature']))

@@ -1,4 +1,4 @@
-# `aps.agent-passport` 2.0: frozen vectors
+# `aps.agent-passport` 2.0 vectors
 
 The Agent Passport record of draft-pidlisnyi-aps-04 section 3.1, generated from
 the merged TypeScript implementation under `src/v2/identity-binding/`.
@@ -6,7 +6,7 @@ the merged TypeScript implementation under `src/v2/identity-binding/`.
 This family exists so a relying party can check a 2.0 passport without running
 APS code: the exact preimage bytes, the identifier they hash to, the signature
 over them, and the verification outcome the SDK returns for four valid cases
-and sixteen rejection or indeterminate cases. Pin the JSON by sha256 and run
+and sixteen rejection, indeterminate or unsupported cases. Pin the JSON by sha256 and run
 your reader over it. This is a limited initial corpus, not complete coverage of
 passport admission.
 
@@ -14,12 +14,34 @@ passport admission.
 
 | file | what it is |
 |---|---|
-| `agent-passport-vectors-v2.json` | the vectors |
-| `generate-fixtures.ts` | deterministic generator |
+| `agent-passport-vectors-v2-r2.json` | the vectors, revision 2, recording the SDK at `6a11df9` |
+| `agent-passport-vectors-v2.json` | revision 1, frozen, recording the SDK at `c31d94a` (sha256 `9fce76db...5ac5`) |
+| `generate-fixtures.ts` | deterministic generator, writes revision 2 |
 | `recompute-independent.ts` | a separate implementation with no SDK imports, run over every case |
 
-The TypeScript reference run lives in `tests/v2/agent-passport-vectors.test.ts`
-and is wired into `npm test`.
+The TypeScript reference runs live in `tests/v2/agent-passport-vectors-r2.test.ts`
+(revision 2, every case exact) and `tests/v2/agent-passport-vectors.test.ts`
+(revision 1, frozen, with the three superseded outputs checked against both the
+file and the current verifier). Both are wired into `npm test`.
+
+## Revisions
+
+Revision 1 (`agent-passport-vectors-v2.json`, commit `407ca2d5`) is frozen and
+stays in the repository unchanged, because outside readers pin it by sha256.
+Revision 2 (`agent-passport-vectors-v2-r2.json`) records the verifier after #221.
+The passports, preimages, keys, resolver table and resolver requests are
+identical. Three cases changed:
+
+| case | revision 1 | revision 2 |
+|---|---|---|
+| `did-web-resolver-not-found` | invalid / `PASSPORT_KEY_NOT_FOUND`, key authority rejected | indeterminate / `PASSPORT_KEY_NOT_FOUND`, key authority unresolved |
+| `version-changed` | invalid / `PASSPORT_MALFORMED`, structure rejected | unsupported / `PASSPORT_UNSUPPORTED_VERSION`, structure unsupported |
+| `record-type-changed` | invalid / `PASSPORT_MALFORMED`, structure rejected | unsupported / `PASSPORT_UNSUPPORTED_RECORD_TYPE`, structure unsupported |
+
+Draft-04 assigns no passport outcome for these three, so both revisions are
+acceptable readings and neither admits the record. Revision 2 records what the
+SDK reports now. To reproduce revision 1 byte for byte, run `generate-fixtures.ts`
+as it was at `407ca2d5`.
 
 ## What a case pins
 
@@ -56,6 +78,8 @@ that `at` equals the passport's `issued_at`.
 
 ## Cases
 
+Revision 2:
+
 | name | state | code | possession | key authority |
 |---|---|---|---|---|
 | `valid-did-key-minimal` | valid | `OK` | true | verified |
@@ -71,10 +95,10 @@ that `at` equals the passport's `issued_at`.
 | `not-yet-valid` | invalid | `PASSPORT_NOT_CURRENT` | true | rejected |
 | `did-web-no-resolver` | indeterminate | `PASSPORT_KEY_AUTHORITY_UNRESOLVED` | true | unresolved |
 | `did-web-resolver-answers-other-key` | invalid | `PASSPORT_KEY_AUTHORITY_REJECTED` | true | rejected |
-| `did-web-resolver-not-found` | invalid | `PASSPORT_KEY_NOT_FOUND` | true | rejected |
+| `did-web-resolver-not-found` | indeterminate | `PASSPORT_KEY_NOT_FOUND` | true | unresolved |
 | `did-web-resolver-unreachable` | indeterminate | `PASSPORT_KEY_UNREACHABLE` | true | unresolved |
-| `version-changed` | invalid | `PASSPORT_MALFORMED` | false | rejected |
-| `record-type-changed` | invalid | `PASSPORT_MALFORMED` | false | rejected |
+| `version-changed` | unsupported | `PASSPORT_UNSUPPORTED_VERSION` | false | unresolved |
+| `record-type-changed` | unsupported | `PASSPORT_UNSUPPORTED_RECORD_TYPE` | false | unresolved |
 | `capabilities-unsorted` | invalid | `PASSPORT_MALFORMED` | false | rejected |
 | `principal-member-present` | invalid | `PASSPORT_MALFORMED` | false | rejected |
 | `timestamp-without-milliseconds` | invalid | `PASSPORT_MALFORMED` | false | rejected |
@@ -89,10 +113,10 @@ Five points are worth reading before porting:
 - `did-web-no-resolver` and `did-web-resolver-unreachable` are `indeterminate`,
   never `invalid`. Nothing was learned about the key, so saying the passport is
   forged would be saying more than the verifier knows.
-- `did-web-resolver-not-found` records the SDK's `invalid`. Draft-04 section 3.5
-  maps a key that is not found to indeterminate for external signers, and
-  section 3.1 assigns no outcome for the agent's own key. A reader that reports
-  indeterminate here is not nonconforming on this vector alone. Its
+- `did-web-resolver-not-found` records the SDK's `indeterminate`. The SDK applies
+  the draft-04 section 3.5 mapping, written for external signers, to the agent's
+  own key, and section 3.1 assigns no outcome there. A reader that reports
+  invalid here is not nonconforming on this vector alone. Its
   `layers.key_authority` is `unresolved`, because no key was resolved.
 - `expired` and `not-yet-valid` report `proof_of_possession: true`. The signature
   verified, so possession is a fact about these bytes whatever the clock says.
@@ -101,12 +125,12 @@ Five points are worth reading before porting:
   An implementation that reports unresolved or not evaluated there is not
   nonconforming on these vectors alone. `valid-at-issued-at` pins the other end
   of the interval, where `now` equal to `issued_at` is inside it.
-- `version-changed` and `record-type-changed` record `invalid` /
-  `PASSPORT_MALFORMED`, the SDK's output for an unrecognised profile. Section
-  3.1 does not assign an outcome to an unrecognised profile, and other draft-04
-  record families report unsupported there. An implementation that reports
-  unsupported is not nonconforming on these vectors alone. What they establish
-  is that the record is not admitted.
+- `version-changed` and `record-type-changed` record `unsupported`, the rule
+  draft-04 states for the delegation and revocation record families. Section 3.1
+  does not assign an outcome to an unrecognised profile, so an implementation
+  that reports invalid or malformed is not nonconforming on these vectors alone.
+  What they establish is that the record is not admitted. `layers.structure` is
+  `unsupported` and nothing past the profile is judged.
 
 The five structural cases and `passport-id-wrong-signature-valid` are re-sealed.
 Their `passport_id` and signature recompute over the record as presented, so
@@ -115,7 +139,11 @@ them.
 
 ## SDK reference
 
-Generated against `aeoess/agent-passport-system` at
+Revision 2 was generated against `6a11df9ee51e63efcad1c2c30e236090cef14db7`, main
+after #221 and #222 and not itself a release. The identity binding sources are
+unchanged since the #221 merge (`f2b3c98`).
+
+Revision 1 was generated against `aeoess/agent-passport-system` at
 `c31d94aad86713ae9b2e4cbc811deeab4b5d91ed`, main after the v7.2.1 tag and not
 itself a release (`git describe`: `v7.2.1-14-gc31d94a`). The identity binding,
 canonicalization, crypto and type sources are unchanged since v7.2.1. The
@@ -136,7 +164,7 @@ instant is passed to the verifier as `now` on every case:
   resolver table are constants in the generator.
 - Ed25519 signing is deterministic (RFC 8032).
 
-Regenerate:
+Regenerate revision 2:
 
 ```
 npx tsx fixtures/agent-passport-v2/generate-fixtures.ts
@@ -154,7 +182,13 @@ silently re-baselined.
 ```
 npx tsx fixtures/agent-passport-v2/recompute-independent.ts
 # or: npm run fixtures:agent-passport-v2:recompute
+# revision 1:
+npx tsx fixtures/agent-passport-v2/recompute-independent.ts fixtures/agent-passport-v2/agent-passport-vectors-v2.json
 ```
+
+With no argument it reads revision 2. It takes the profile rule from the file's
+`family_revision`: from revision 2, an unrecognised string profile is
+`structure: unsupported`.
 
 `recompute-independent.ts` imports nothing from `src/`. Its only imports are
 `node:crypto` and `node:fs`. It re-states RFC 8785 JCS for the JSON a passport
@@ -187,10 +221,11 @@ it is a property of the SDK verifier, not of these bytes.
 - Selection of a retired key. Section 3.4 requires acceptable timestamp
   evidence before a retired key is selected, and the issuer's `issued_at` claim
   alone does not satisfy it. Without that evidence the outcome is indeterminate,
-  reported as `KEY_AMBIGUOUS`. At the pinned commit `verifyPassportV2` has no
-  evidence input and admits whatever key the resolver returns for `issued_at`,
-  so a resolver that returned a retired key would be accepted on the claim
-  alone. No vector here exercises that case.
+  reported as `KEY_AMBIGUOUS`. `verifyPassportV2` has no evidence input.
+  `HistoricalKeyResolutionResult` documents that `resolved` means the key
+  authorized at `issued_at` and that a resolver that cannot select by time
+  answers `ambiguous`, so the evidence check rests with the resolver. No vector
+  here exercises that case.
 - Principal binding and its revocation (section 3.3 and following). Those are
   separate records with their own constructions.
 - JCS escaping of non-ASCII and control characters. Every string here is
