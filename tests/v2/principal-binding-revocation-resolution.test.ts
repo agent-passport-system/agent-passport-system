@@ -96,6 +96,9 @@ for (const [label, answer] of [
     return Object.defineProperty({ state: 'resolved' }, 'public_key_hex', { enumerable: true, get() { n += 1; return n === 1 ? principal.publicKey : stranger.publicKey } })
   }],
   ['proxy trap throws', () => new Proxy({}, { getOwnPropertyDescriptor() { throw new Error('boom') }, get() { throw new Error('boom') } })],
+  ['non-plain object carrying the right key (#228)', () => Object.assign(new Date(0), { state: 'resolved', public_key_hex: principal.publicKey })],
+  ['class instance carrying the right key (#228)', () => Object.assign(new (class Answer {})(), { state: 'resolved', public_key_hex: principal.publicKey })],
+  ['getPrototypeOf trap throws (#228)', () => new Proxy({ state: 'resolved', public_key_hex: principal.publicKey }, { getPrototypeOf() { throw new Error('boom') } })],
 ] as Array<[string, () => unknown]>) {
   test(`resolver answer ${label} is RESOLUTION_FAILED, never an exception`, async () => {
     assert.deepEqual(await withAnswer(answer()), failed)
@@ -106,4 +109,9 @@ test('an unresolved key is checked before the signature and never calls it estab
   const tampered = { ...revocation, signature: '00'.repeat(64) }
   const out = await verifyPrincipalBindingRevocationV1(tampered, () => ({ state: 'not_found' }))
   assert.deepEqual(out, unresolved('indeterminate', 'PRINCIPAL_BINDING_REVOCATION_KEY_NOT_FOUND'))
+})
+
+test('a null-prototype resolver answer is still a plain answer (#228 control)', async () => {
+  const answer = Object.assign(Object.create(null), { state: 'resolved', public_key_hex: principal.publicKey })
+  assert.equal((await withAnswer(answer)).state, 'valid')
 })

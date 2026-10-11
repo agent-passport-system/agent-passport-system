@@ -347,6 +347,9 @@ function hostileAnswers(key: string): Array<[string, () => unknown]> {
       return Object.defineProperty({ state: 'resolved' }, 'public_key_hex', { enumerable: true, get() { n += 1; return n === 1 ? key : '00'.repeat(32) } })
     }],
     ['proxy trap throws', () => new Proxy({}, { getOwnPropertyDescriptor() { throw new Error('boom') }, get() { throw new Error('boom') } })],
+    ['non-plain object carrying the right key (#228)', () => Object.assign(new Date(0), { state: 'resolved', public_key_hex: key })],
+    ['class instance carrying the right key (#228)', () => Object.assign(new (class Answer {})(), { state: 'resolved', public_key_hex: key })],
+    ['getPrototypeOf trap throws (#228)', () => new Proxy({ state: 'resolved', public_key_hex: key }, { getPrototypeOf() { throw new Error('boom') } })],
   ]
 }
 
@@ -365,3 +368,10 @@ for (const [label, make] of hostileAnswers(principal.publicKey)) {
     })
   })
 }
+
+test('a null-prototype resolver answer is still a plain answer (#228 control)', async () => {
+  const answer = Object.assign(Object.create(null), { state: 'resolved', public_key_hex: webKey })
+  assert.equal((await passportWith(answer)).state, 'valid')
+  const pbAnswer = Object.assign(Object.create(null), { state: 'resolved', public_key_hex: principal.publicKey })
+  assert.equal((await bindingWith(pbAnswer)).state, 'valid')
+})

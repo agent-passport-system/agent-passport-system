@@ -40,6 +40,10 @@ export function classifyResolution(resolution: unknown): ClassifiedResolution {
   let key: unknown
   try {
     if (resolution === null || typeof resolution !== 'object' || Array.isArray(resolution)) return failed()
+    // A plain object only, as documented (#228). Inside the try, so a throwing
+    // getPrototypeOf trap is RESOLUTION_FAILED like any other unreadable answer.
+    const prototype = Object.getPrototypeOf(resolution)
+    if (prototype !== Object.prototype && prototype !== null) return failed()
     const stateDescriptor = Object.getOwnPropertyDescriptor(resolution, 'state')
     const keyDescriptor = Object.getOwnPropertyDescriptor(resolution, 'public_key_hex')
     if (!stateDescriptor || !('value' in stateDescriptor)) return failed()
