@@ -10,6 +10,9 @@ accepted the same record at any depth. Both now report the record invalid with a
 because no comparison was made. An absent or null member is not compared, as before. A
 negative `maxDepth`, which used to report `depthExceeded`, now reports the malformed error
 instead. Only the issuer can produce these values, since they are inside the signed bytes.
+`createDelegation` now refuses to sign such a `maxDepth` or `currentDepth`, so the SDK
+cannot return a signed record its own verifier rejects. The defaults and `null` are
+unchanged.
 
 **`subDelegate` refuses a parent without a non-negative integer `maxDepth`, and
 `verifyDelegation` reads `maxDepth: null` as absent.** `subDelegate` used to mint a child

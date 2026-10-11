@@ -166,3 +166,30 @@ describe('legacy Delegation with a malformed maxDepth', () => {
     }
   })
 })
+
+// #223, writer side. createDelegation refuses to sign a depth its own verifier reports
+// malformed, so the SDK cannot hand back a signed record it would then refuse.
+describe('createDelegation refuses a malformed depth', () => {
+  const g = generateKeyPair()
+  const a = generateKeyPair()
+  const create = (extra: Record<string, unknown>) => createDelegation({
+    delegatedBy: g.publicKey, delegatedTo: a.publicKey, scope: ['data:read'], spendLimit: 1,
+    privateKey: g.privateKey, ...extra,
+  } as Parameters<typeof createDelegation>[0])
+
+  it('throws for a maxDepth or currentDepth that is not a non-negative safe integer', () => {
+    for (const value of [1.5, -1, 2 ** 53, Number.NaN, Number.POSITIVE_INFINITY, '1', true]) {
+      assert.throws(() => create({ maxDepth: value }), /maxDepth must be a non-negative integer/, `maxDepth ${String(value)}`)
+      assert.throws(() => create({ currentDepth: value }), /currentDepth must be a non-negative integer/, `currentDepth ${String(value)}`)
+    }
+  })
+
+  it('signs the boundary values and the defaults, and they verify', () => {
+    for (const extra of [{}, { maxDepth: 0 }, { maxDepth: 2 ** 53 - 1, currentDepth: 2 ** 53 - 1 }, { maxDepth: null }]) {
+      const d = create(extra)
+      assert.equal(verifyDelegation(d).valid, true, JSON.stringify(extra))
+    }
+    assert.equal(create({}).maxDepth, 1)
+    assert.equal(create({ maxDepth: null }).maxDepth, 1)
+  })
+})

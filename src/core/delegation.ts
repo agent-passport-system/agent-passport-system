@@ -108,6 +108,14 @@ export function createDelegation(opts: CreateDelegationOptions): Delegation {
   // 61200.00000000001ms) emits exactly the instant it emitted before.
   const expiresAtIso = opts.expiresAt ?? formatRfc3339(Math.trunc(now.getTime() + (opts.expiresInHours ?? 24) * 3600000))
 
+  // Refuse to sign a depth verifyDelegation would report malformed (#223). Without this the
+  // SDK could return a signed record, such as maxDepth 1.5, that its own verifier refuses.
+  const maxDepth = opts.maxDepth ?? 1
+  const currentDepth = opts.currentDepth ?? 0
+  const isDepth = (v: unknown): boolean => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0
+  if (!isDepth(maxDepth)) throw new Error('createDelegation: maxDepth must be a non-negative integer no greater than 2^53 - 1')
+  if (!isDepth(currentDepth)) throw new Error('createDelegation: currentDepth must be a non-negative integer no greater than 2^53 - 1')
+
   const delegation: Omit<Delegation, 'signature'> = {
     delegationId: 'del_' + uuidv4().slice(0, 12),
     delegatedTo: opts.delegatedTo,
@@ -118,8 +126,8 @@ export function createDelegation(opts: CreateDelegationOptions): Delegation {
     spendLimit: opts.spendLimit,
     spentAmount: 0,
     ...(opts.spendLimitUnit && { spendLimitUnit: opts.spendLimitUnit }),
-    maxDepth: opts.maxDepth ?? 1,
-    currentDepth: opts.currentDepth ?? 0,
+    maxDepth,
+    currentDepth,
     createdAt: now.toISOString(),
     notBefore: opts.notBefore ?? now.toISOString(),
     ...(opts.derivation_rights && { derivation_rights: opts.derivation_rights }),
