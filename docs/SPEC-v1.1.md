@@ -41,16 +41,24 @@ behaviour.
    validates the receipt chain. Steps 2 to 4 of section 1.3 are not performed
    by `verifyReceipt`, and a relying party needs a separate check for them.
 3. **`max_depth` default (sections 3.4 and 4.1).** The two sections state
-   different defaults. The TypeScript `createDelegation` writes `maxDepth: 1`
+   different defaults. Clarification adopted 2026-10-11: section 3.4 is the
+   default a writer applies when its caller omits the field, and section 4.1
+   governs verification of a signed record without it. The TypeScript
+   `createDelegation` and the Python `create_delegation` write `maxDepth: 1`
    when the caller omits it, and the field is signed. The TypeScript
-   `verifyDelegation` applies no depth ceiling to a signed record without
-   `maxDepth`. The writer default and the reader behaviour are not equivalent.
-   The Python SDK reader at `0350d91` (`verify_delegation` in
-   `src/agent_passport/delegation.py`) reads an absent `maxDepth` as 0. A
-   verifier that applies the section 3.4 default is stricter than the
-   TypeScript verifier and is not contradicted by this item. This item records
-   implemented behaviour. It is not a claim about what the two sections
-   originally meant.
+   `verifyDelegation` and, from agent-passport-python `5530894`, the Python
+   `verify_delegation` apply no depth ceiling to a signed record without
+   `maxDepth`, and compare a present numeric `maxDepth` as before. An absent
+   field does not establish that a record was written before v1.1, because a
+   writer can omit it at any time, so this is a compatibility rule for records
+   without the field and not a way to tell old records from new ones. A relying
+   party may apply a stricter acceptance policy, for example a ceiling of 1, as
+   its own local policy. That is not the verification default described here.
+   Minting is a separate question: `subDelegate` and `sub_delegate` refuse to
+   create a child under a parent without a numeric `maxDepth`, because
+   accepting a record is not permission to extend authority under it. The
+   Python Auditability check (F-005 in `policy.py`) still reads an absent
+   `maxDepth` as 1 and is not changed by this clarification.
 4. **Depth comparison at verification (section 5).** Section 5 says agents
    MUST NOT accept delegations where `current_depth >= max_depth`. The
    TypeScript `verifyDelegation` reports a depth violation only when
