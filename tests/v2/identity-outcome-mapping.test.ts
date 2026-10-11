@@ -258,6 +258,80 @@ test('principal binding: a resolver that throws is indeterminate, not an excepti
   })
 })
 
+// ── Principal binding: profile ──
+//
+// The same recognition rule as the passport, for aps.principal-binding 1.0. These records
+// used to be PRINCIPAL_BINDING_MALFORMED.
+
+const pbUnsupportedType = { state: 'unsupported', code: 'PRINCIPAL_BINDING_UNSUPPORTED_RECORD_TYPE', proof_of_possession: false, key_authority: 'unresolved' }
+const pbUnsupportedVersion = { state: 'unsupported', code: 'PRINCIPAL_BINDING_UNSUPPORTED_VERSION', proof_of_possession: false, key_authority: 'unresolved' }
+const pbMalformed = { state: 'invalid', code: 'PRINCIPAL_BINDING_MALFORMED', proof_of_possession: false, key_authority: 'rejected' }
+const pbNow = { now: '2026-07-17T00:00:00.000Z' }
+const pbResolve = () => ({ state: 'resolved', public_key_hex: principal.publicKey }) as HistoricalKeyResolutionResult
+
+test('principal binding: an unrecognised record_type or version is unsupported', async () => {
+  assert.deepEqual(await verifyPrincipalBindingV1({ ...binding, record_type: 'aps.principal-binding-x' }, { ...pbNow, resolve_key: pbResolve }), pbUnsupportedType)
+  assert.deepEqual(await verifyPrincipalBindingV1({ ...binding, version: '2.0' }, { ...pbNow, resolve_key: pbResolve }), pbUnsupportedVersion)
+})
+
+test('principal binding: an unrecognised record_type is reported before an unrecognised version', async () => {
+  const both = { ...binding, record_type: 'other.record', version: '9.9' }
+  assert.deepEqual(await verifyPrincipalBindingV1(both, { ...pbNow, resolve_key: pbResolve }), pbUnsupportedType)
+})
+
+test('principal binding: an unrecognised profile is not judged against the 1.0 schema', async () => {
+  const extra = { ...binding, version: '1.1', delegation_id: 'x', nonce: 'short' }
+  assert.deepEqual(await verifyPrincipalBindingV1(extra, { ...pbNow, resolve_key: pbResolve }), pbUnsupportedVersion)
+  assert.deepEqual(await verifyPrincipalBindingV1({ record_type: 'aps.principal-binding', version: '9.9' }, { resolve_key: pbResolve }), pbUnsupportedVersion)
+})
+
+test('principal binding: an unsupported profile never reaches the key resolver', async () => {
+  let calls = 0
+  const resolve_key = () => { calls += 1; return pbResolve() }
+  await verifyPrincipalBindingV1({ ...binding, version: '1.1' }, { ...pbNow, resolve_key })
+  await verifyPrincipalBindingV1({ ...binding, record_type: 'other.record' }, { ...pbNow, resolve_key })
+  assert.equal(calls, 0)
+})
+
+test('principal binding: an accessor discriminator is malformed and is read at most once', async () => {
+  let reads = 0
+  const tricky = { ...binding }
+  Object.defineProperty(tricky, 'version', { enumerable: true, get: () => { reads += 1; return reads === 1 ? '1.0' : '9.9' } })
+  assert.deepEqual(await verifyPrincipalBindingV1(tricky, { ...pbNow, resolve_key: pbResolve }), pbMalformed)
+  assert.equal(reads, 0)
+})
+
+test('principal binding: a missing or non-string discriminator stays malformed', async () => {
+  const { record_type: _rt, ...noType } = binding
+  const { version: _v, ...noVersion } = binding
+  for (const candidate of [noType, noVersion, { ...binding, record_type: 7 }, { ...binding, version: 1 }, { ...binding, version: null }, null, []]) {
+    assert.deepEqual(await verifyPrincipalBindingV1(candidate, { ...pbNow, resolve_key: pbResolve }), pbMalformed, JSON.stringify(candidate))
+  }
+})
+
+test('a proxy whose prototype or descriptor trap throws is malformed, never an exception', async () => {
+  // Before the shared guard, verifyPassportV2 threw on both (since #221) and the reordered
+  // verifyPrincipalBindingV1 did too.
+  const hostile = [
+    new Proxy({}, { getPrototypeOf() { throw new Error('boom') } }),
+    new Proxy({}, { getOwnPropertyDescriptor() { throw new Error('boom') } }),
+    new Proxy({ ...binding }, { getOwnPropertyDescriptor() { throw new Error('boom') } }),
+  ]
+  for (const candidate of hostile) {
+    assert.deepEqual(await verifyPassportV2(candidate), malformed)
+    assert.deepEqual(await verifyPrincipalBindingV1(candidate, { ...pbNow, resolve_key: pbResolve }), pbMalformed)
+  }
+})
+
+test('principal binding: an unrecognised record_type is unsupported even with no version member', async () => {
+  const { version: _v, ...noVersion } = binding
+  assert.deepEqual(await verifyPrincipalBindingV1({ ...noVersion, record_type: 'other.record' }, { ...pbNow, resolve_key: pbResolve }), pbUnsupportedType)
+})
+
+test('principal binding: the supported profile with a broken shape stays malformed', async () => {
+  assert.deepEqual(await verifyPrincipalBindingV1({ ...binding, extra: 1 }, { ...pbNow, resolve_key: pbResolve }), pbMalformed)
+})
+
 // ── Resolver answers that try to answer twice or throw while being read ──
 
 function hostileAnswers(key: string): Array<[string, () => unknown]> {
