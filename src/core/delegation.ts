@@ -167,6 +167,18 @@ export interface SubDelegateOptions {
 export function subDelegate(opts: SubDelegateOptions): Delegation {
   const parent = opts.parentDelegation
 
+  // verifyDelegation applies no depth ceiling to a signed record without maxDepth
+  // (docs/SPEC-v1.1.md section 4.1). That is about accepting a record, not about minting
+  // new authority under it: a parent with no ceiling has no signed value for the child to
+  // inherit. Without this check the child was minted with createDelegation's default
+  // maxDepth 1 and currentDepth parent + 1, a record that fails its own depth check.
+  const parentMaxDepth: unknown = (parent as { maxDepth?: unknown }).maxDepth
+  if (typeof parentMaxDepth !== 'number' || !Number.isFinite(parentMaxDepth)) {
+    throw new Error(
+      'Cannot sub-delegate from a parent without a numeric maxDepth: the parent carries no depth ceiling for the child to inherit',
+    )
+  }
+
   const newDepth = parent.currentDepth + 1
   if (newDepth > parent.maxDepth) {
     throw new Error(

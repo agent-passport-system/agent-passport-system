@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+**`subDelegate` refuses a parent without a numeric `maxDepth`.** It used to mint a child
+with `createDelegation`'s default `maxDepth: 1` and `currentDepth` parent + 1, a record
+that then failed its own depth check. It now throws, naming the missing ceiling.
+`verifyDelegation` is unchanged: a signed record without `maxDepth` still has no depth
+ceiling on verification, as `delegation-without-max-depth-at-depth-64` records. Errata
+item 3 in `docs/SPEC-v1.1.md` now states section 3.4 as the writer default and section
+4.1 as the verification rule, says that absence does not show a record is old, and keeps
+minting separate from verification. The body of the document is unchanged.
+
 **`verifyPassportV2` reports an ambiguous historical key as indeterminate.** When the
 resolver answers `ambiguous`, the result is now `indeterminate` with
 `PASSPORT_KEY_AMBIGUOUS`, `proof_of_possession: true` and `key_authority: unresolved`,
