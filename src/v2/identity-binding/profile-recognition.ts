@@ -15,7 +15,8 @@ import type { IdentityVerificationResult } from './types.js'
  * Everything else returns null and goes to the family's schema check, which reports it
  * malformed: a value that is not a plain JSON object, a missing or non-string record_type,
  * the recognised record_type with a missing or non-string version, and a broken shape. Both
- * discriminators are read once, as own data properties, so an accessor cannot answer
+ * discriminators are read here once each, as own data properties, and an accessor on either
+ * is reported before the schema check reads them again, so an accessor never answers
  * differently here and in the schema check. An accessor record_type is malformed. version
  * is read only when record_type is the recognised one, so an accessor version is malformed
  * only then, and an unknown record_type is unsupported whatever version holds.
