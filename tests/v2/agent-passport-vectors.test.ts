@@ -51,6 +51,30 @@ interface VectorFile {
   }>
 }
 
+/**
+ * Cases whose recorded SDK output the verifier no longer produces. The vector file is
+ * frozen (its sdk_reference.commit names the implementation that produced every recorded
+ * outcome) and is not edited. For each case here the test checks both that the file still
+ * records the old output and that the current verifier produces the new one. Draft-04
+ * assigns no outcome to these cases for a passport, and each case's sdk_observation
+ * already says an implementation reporting the new outcome is not nonconforming on these
+ * vectors alone. See identity-outcome-mapping.test.ts.
+ */
+const SUPERSEDED: Record<string, { recorded: IdentityVerificationResult; current: IdentityVerificationResult }> = {
+  'did-web-resolver-not-found': {
+    recorded: { state: 'invalid', code: 'PASSPORT_KEY_NOT_FOUND', proof_of_possession: true, key_authority: 'rejected' },
+    current: { state: 'indeterminate', code: 'PASSPORT_KEY_NOT_FOUND', proof_of_possession: true, key_authority: 'unresolved' },
+  },
+  'version-changed': {
+    recorded: { state: 'invalid', code: 'PASSPORT_MALFORMED', proof_of_possession: false, key_authority: 'rejected' },
+    current: { state: 'unsupported', code: 'PASSPORT_UNSUPPORTED_VERSION', proof_of_possession: false, key_authority: 'unresolved' },
+  },
+  'record-type-changed': {
+    recorded: { state: 'invalid', code: 'PASSPORT_MALFORMED', proof_of_possession: false, key_authority: 'rejected' },
+    current: { state: 'unsupported', code: 'PASSPORT_UNSUPPORTED_RECORD_TYPE', proof_of_possession: false, key_authority: 'unresolved' },
+  },
+}
+
 const vector = JSON.parse(readFileSync(
   new URL('../../fixtures/agent-passport-v2/agent-passport-vectors-v2.json', import.meta.url),
   'utf8',
@@ -118,13 +142,23 @@ for (const item of vector.cases) {
       now: item.now,
       ...(item.resolver === 'table' ? { resolve_key: recording } : {}),
     })
-    assert.deepEqual(observed, item.verification)
+    const superseded = SUPERSEDED[item.name]
+    if (superseded) {
+      assert.deepEqual(item.verification, superseded.recorded, `${item.name}: the frozen file still records the old output`)
+      assert.deepEqual(observed, superseded.current, `${item.name}: current verifier output`)
+    } else {
+      assert.deepEqual(observed, item.verification)
+    }
     if (item.resolver === 'table') {
       assert.deepEqual(requests, item.resolver_requests, `${item.name}: resolver requests`)
       for (const request of requests) assert.equal(request.at, item.passport.issued_at, `${item.name}: resolved at issued_at`)
     }
   })
 }
+
+test('every superseded case exists in the file', () => {
+  for (const name of Object.keys(SUPERSEDED)) assert.ok(vector.cases.some(item => item.name === name), name)
+})
 
 test('every case carries a complete recorded verification', () => {
   for (const item of vector.cases) {

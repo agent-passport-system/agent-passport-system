@@ -19,6 +19,7 @@ import {
   assertUtcMilliseconds,
   sortedUnique,
 } from './validation.js'
+import { classifyResolution } from './resolution-outcome.js'
 
 const ID_DOMAIN = 'APS-PRINCIPAL-BINDING-ID-V1\0'
 const SIGNATURE_DOMAIN = 'APS-PRINCIPAL-BINDING-SIG-V1\0'
@@ -81,25 +82,33 @@ export async function verifyPrincipalBindingV1(
   if (now < binding.issued_at || now >= binding.expires_at) {
     return invalid('PRINCIPAL_BINDING_NOT_CURRENT')
   }
-  const resolution = await options.resolve_key({
-    controller: binding.principal_id,
-    verification_method: binding.verification_method,
-    at: binding.issued_at,
-  })
-  if (resolution.state !== 'resolved' || !resolution.public_key_hex) {
-    const indeterminate = resolution.state === 'unreachable'
+  // A resolver that throws is treated like an answer outside the resolver contract.
+  let resolution: unknown
+  try {
+    resolution = await options.resolve_key({
+      controller: binding.principal_id,
+      verification_method: binding.verification_method,
+      at: binding.issued_at,
+    })
+  } catch {
+    resolution = undefined
+  }
+  // Same section 3.5 mapping as verifyPassportV2 (see resolution-outcome.ts). No
+  // signature was checked in these branches, so none of them is a signature failure.
+  const classified = classifyResolution(resolution)
+  if (!classified.ok) {
     return {
-      state: indeterminate ? 'indeterminate' : 'invalid',
-      code: `PRINCIPAL_BINDING_KEY_${resolution.state.toUpperCase()}`,
+      state: classified.failure.state,
+      code: `PRINCIPAL_BINDING_KEY_${classified.failure.outcome}`,
       proof_of_possession: false,
-      key_authority: indeterminate ? 'unresolved' : 'rejected',
+      key_authority: 'unresolved',
     }
   }
   const signatureForm = omit(binding, ['signature'])
   if (!verify(
     SIGNATURE_DOMAIN + canonicalizeJCS(signatureForm),
     binding.signature,
-    resolution.public_key_hex,
+    classified.public_key_hex,
   )) {
     return invalid('PRINCIPAL_BINDING_SIGNATURE_INVALID')
   }

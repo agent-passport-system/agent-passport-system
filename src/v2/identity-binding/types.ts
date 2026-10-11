@@ -83,6 +83,15 @@ export interface HistoricalKeyResolutionRequest {
   at: string
 }
 
+/**
+ * A resolver's answer for the key authorized for `verification_method` at `at`.
+ *
+ * `resolved` means the returned key is the one authorized at `at`. A resolver that cannot
+ * select by time (for example a method with no history, such as did:web read live) and
+ * cannot establish that the current key was also the key at `at` answers `ambiguous`, not
+ * `resolved` with today's key. Verifiers report a resolved key that differs from the
+ * signing key as an established key-authority failure, which is only true when this holds.
+ */
 export interface HistoricalKeyResolutionResult {
   state: 'resolved' | 'not_found' | 'ambiguous' | 'malformed' | 'unreachable' | 'unsupported'
   public_key_hex?: string
