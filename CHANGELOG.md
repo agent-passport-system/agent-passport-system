@@ -2,14 +2,20 @@
 
 ## Unreleased
 
-**`subDelegate` refuses a parent without a numeric `maxDepth`.** It used to mint a child
-with `createDelegation`'s default `maxDepth: 1` and `currentDepth` parent + 1, a record
-that then failed its own depth check. It now throws, naming the missing ceiling.
-`verifyDelegation` is unchanged: a signed record without `maxDepth` still has no depth
-ceiling on verification, as `delegation-without-max-depth-at-depth-64` records. Errata
-item 3 in `docs/SPEC-v1.1.md` now states section 3.4 as the writer default and section
-4.1 as the verification rule, says that absence does not show a record is old, and keeps
-minting separate from verification. The body of the document is unchanged.
+**`subDelegate` refuses a parent without a non-negative integer `maxDepth`, and
+`verifyDelegation` reads `maxDepth: null` as absent.** `subDelegate` used to mint a child
+under a parent without `maxDepth` with `createDelegation`'s default `maxDepth: 1` and
+`currentDepth` parent + 1, which fails its own depth check whenever the parent's depth is 1
+or more. It now throws, and it also refuses a parent whose `maxDepth` or `currentDepth` is
+not a non-negative integer. `verifyDelegation` still applies no depth ceiling to a signed
+record without `maxDepth`, as `delegation-without-max-depth-at-depth-64` records. The
+canonical form drops null members, so `maxDepth: null` signs to the same bytes as an absent
+member. It used to be compared as 0, so a holder could add the null member and flip a valid
+record to invalid without the key. Both forms now get the same verdict. Errata item 3 in
+`docs/SPEC-v1.1.md` now states section 3.4 as the writer default and section 4.1 as the
+verification rule, says that absence does not show a record is old and that absent and null
+cannot be told apart in a signed record, and keeps minting separate from verification. The
+body of the document is unchanged.
 
 **`verifyPassportV2` reports an ambiguous historical key as indeterminate.** When the
 resolver answers `ambiguous`, the result is now `indeterminate` with

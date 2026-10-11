@@ -171,12 +171,18 @@ export function subDelegate(opts: SubDelegateOptions): Delegation {
   // (docs/SPEC-v1.1.md section 4.1). That is about accepting a record, not about minting
   // new authority under it: a parent with no ceiling has no signed value for the child to
   // inherit. Without this check the child was minted with createDelegation's default
-  // maxDepth 1 and currentDepth parent + 1, a record that fails its own depth check.
+  // maxDepth 1 and currentDepth parent + 1, which fails its own depth check whenever the
+  // parent's currentDepth is 1 or more.
   const parentMaxDepth: unknown = (parent as { maxDepth?: unknown }).maxDepth
-  if (typeof parentMaxDepth !== 'number' || !Number.isFinite(parentMaxDepth)) {
+  const parentDepth: unknown = (parent as { currentDepth?: unknown }).currentDepth
+  const isDepth = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0
+  if (!isDepth(parentMaxDepth)) {
     throw new Error(
-      'Cannot sub-delegate from a parent without a numeric maxDepth: the parent carries no depth ceiling for the child to inherit',
+      'Cannot sub-delegate from a parent without a non-negative integer maxDepth: the parent carries no depth ceiling for the child to inherit',
     )
+  }
+  if (!isDepth(parentDepth)) {
+    throw new Error('Cannot sub-delegate from a parent without a non-negative integer currentDepth')
   }
 
   const newDepth = parent.currentDepth + 1
@@ -507,7 +513,15 @@ export function verifyDelegation(delegation: Delegation, opts?: RevocationCheckO
     )
   }
 
-  const depthExceeded = delegation.currentDepth > delegation.maxDepth
+  // Verification reads the signed view. The canonical form drops members whose value is
+  // null, so a record with maxDepth: null and the same record without maxDepth carry the
+  // same signature. Both are treated as absent, which has no depth ceiling here
+  // (docs/SPEC-v1.1.md section 4.1). Before, `currentDepth > null` compared against 0, so
+  // anyone holding a valid record without maxDepth could add a null member and flip it to
+  // invalid without the key.
+  const signedMaxDepth = (delegation as { maxDepth?: unknown }).maxDepth
+  const depthExceeded = signedMaxDepth !== null && signedMaxDepth !== undefined &&
+    delegation.currentDepth > (signedMaxDepth as number)
   if (depthExceeded) errors.push('Depth limit exceeded')
 
   return {
