@@ -106,3 +106,63 @@ describe('legacy Delegation without maxDepth', () => {
     }
   })
 })
+
+// #223. A present maxDepth that is not a non-negative safe integer is inside the signed
+// bytes, so only the issuer can produce it. The comparison used to coerce it ("1" acted as
+// 1, true as 1) while the Python verifier skipped it, so one record got two verdicts. It is
+// now invalid in both, and no depth result is claimed for it.
+describe('legacy Delegation with a malformed maxDepth', () => {
+  function signedWith(changes: Record<string, unknown>): Delegation {
+    const granter = generateKeyPair()
+    const agent = generateKeyPair()
+    const base = createDelegation({
+      delegatedBy: granter.publicKey, delegatedTo: agent.publicKey,
+      scope: ['data:read'], spendLimit: 100, maxDepth: 1, privateKey: granter.privateKey,
+    })
+    return resigned(base, changes, [], granter.privateKey)
+  }
+
+  it('is invalid at depth 0 and above, without a depth result', () => {
+    for (const value of ['1', '0', true, false, 1.5, -1, 2 ** 53, [1], { n: 1 }]) {
+      for (const depth of [0, 2]) {
+        const status = verifyDelegation(signedWith({ maxDepth: value, currentDepth: depth }))
+        const label = `${JSON.stringify(value)} at ${depth}`
+        assert.equal(status.valid, false, label)
+        assert.equal(status.depthExceeded, false, label)
+        assert.ok(status.errors.some(e => e.startsWith('Malformed maxDepth')), label)
+      }
+    }
+  })
+
+  it('null is still read as absent', () => {
+    const status = verifyDelegation(signedWith({ maxDepth: null, currentDepth: 3 }))
+    assert.equal(status.valid, true, status.errors.join(', '))
+    assert.equal(status.depthExceeded, false)
+  })
+
+  it('a malformed currentDepth is invalid, with or without a ceiling', () => {
+    for (const value of ['5', '0', true, 0.5, -1, 2 ** 53, [1]]) {
+      for (const maxDepth of [1, null]) {
+        const status = verifyDelegation(signedWith({ maxDepth, currentDepth: value }))
+        const label = `currentDepth ${JSON.stringify(value)}, maxDepth ${maxDepth}`
+        assert.equal(status.valid, false, label)
+        assert.equal(status.depthExceeded, false, label)
+        assert.ok(status.errors.some(e => e.startsWith('Malformed currentDepth')), label)
+      }
+    }
+  })
+
+  it('an absent or null currentDepth is not compared', () => {
+    const granter = generateKeyPair()
+    const agent = generateKeyPair()
+    const base = createDelegation({
+      delegatedBy: granter.publicKey, delegatedTo: agent.publicKey,
+      scope: ['data:read'], spendLimit: 100, maxDepth: 0, privateKey: granter.privateKey,
+    })
+    for (const record of [resigned(base, {}, ['currentDepth'], granter.privateKey), resigned(base, { currentDepth: null }, [], granter.privateKey)]) {
+      const status = verifyDelegation(record)
+      assert.equal(status.valid, true, status.errors.join(', '))
+      assert.equal(status.depthExceeded, false)
+    }
+  })
+})
