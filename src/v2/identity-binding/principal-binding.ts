@@ -20,9 +20,11 @@ import {
   sortedUnique,
 } from './validation.js'
 import { classifyResolution } from './resolution-outcome.js'
+import { unrecognisedProfile } from './profile-recognition.js'
 
 const ID_DOMAIN = 'APS-PRINCIPAL-BINDING-ID-V1\0'
 const SIGNATURE_DOMAIN = 'APS-PRINCIPAL-BINDING-SIG-V1\0'
+const PROFILE = { record_type: 'aps.principal-binding', version: '1.0', code_prefix: 'PRINCIPAL_BINDING' }
 
 export interface IssuePrincipalBindingV1Input {
   agent_id: string
@@ -68,6 +70,10 @@ export async function verifyPrincipalBindingV1(
     principal_is_externally_verified?: (principalId: string, at: string) => boolean | Promise<boolean>
   },
 ): Promise<IdentityVerificationResult> {
+  // A string record_type or version this verifier does not implement is unsupported, and is
+  // neither judged against the 1.0 schema nor sent to the key resolver (profile-recognition.ts).
+  const profile = unrecognisedProfile(candidate, PROFILE)
+  if (profile) return profile
   let binding: PrincipalBindingV1
   try {
     binding = validateBinding(candidate)
