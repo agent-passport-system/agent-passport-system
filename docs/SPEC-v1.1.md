@@ -13,7 +13,9 @@ This document describes the legacy, pre-draft surface implemented in
 written. The items below record where the TypeScript SDK at
 `c31d94aad86713ae9b2e4cbc811deeab4b5d91ed` (main after the v7.2.1 tag,
 unreleased) differs from the body. They describe that implementation and do not
-change the requirements in the body. Other implementations, including the
+change the requirements in the body. Item 3 is the exception: sections 3.4 and
+4.1 contradict each other, and item 3 also states how this document is to be
+read where they do. Other implementations, including the
 Python SDK, may differ. Differences not listed here are not resolved by this
 section. The vectors in `fixtures/action-receipt-v1.1/` record the TypeScript
 behaviour.
@@ -41,9 +43,9 @@ behaviour.
    validates the receipt chain. Steps 2 to 4 of section 1.3 are not performed
    by `verifyReceipt`, and a relying party needs a separate check for them.
 3. **`max_depth` default (sections 3.4 and 4.1).** The two sections state
-   different defaults. Clarification adopted 2026-10-11: section 3.4 is the
-   default a writer applies when its caller omits the field, and section 4.1
-   governs verification of a signed record without it. The TypeScript
+   different defaults. Reading (2026-10-11): section 3.4 is the default a
+   writer applies when its caller omits the field, and section 4.1 governs
+   verification of a signed record without it. The TypeScript
    `createDelegation` and the Python `create_delegation` write `maxDepth: 1`
    when the caller omits it, and the field is signed. The TypeScript
    `verifyDelegation` and, from agent-passport-python `5530894`, the Python
