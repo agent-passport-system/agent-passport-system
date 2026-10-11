@@ -25,9 +25,11 @@ import {
   sortedUnique,
 } from './validation.js'
 import { classifyResolution } from './resolution-outcome.js'
+import { unrecognisedProfile } from './profile-recognition.js'
 
 const ID_DOMAIN = 'APS-PASSPORT-ID-V2\0'
 const SIGNATURE_DOMAIN = 'APS-PASSPORT-SIG-V2\0'
+const PROFILE = { record_type: 'aps.agent-passport', version: '2.0', code_prefix: 'PASSPORT' }
 
 export interface IssuePassportV2Input {
   public_key_hex: string
@@ -69,7 +71,7 @@ export async function verifyPassportV2(
   candidate: unknown,
   options: { now?: string; resolve_key?: HistoricalKeyResolver } = {},
 ): Promise<IdentityVerificationResult> {
-  const profile = unrecognisedProfile(candidate)
+  const profile = unrecognisedProfile(candidate, PROFILE)
   if (profile) return profile
   let passport: PassportV2
   try {
@@ -145,47 +147,6 @@ export async function verifyPassportV2(
     }
   }
   return { state: 'valid', code: 'OK', proof_of_possession: true, key_authority: 'verified' }
-}
-
-/**
- * Profile recognition before the 2.0 schema, the rule draft-04 states for the delegation
- * and revocation record families. A string record_type other than "aps.agent-passport"
- * is unsupported whatever else the object carries. With the recognised record_type, a
- * string version other than "2.0" is unsupported. An unsupported record is not judged
- * against the 2.0 schema and never reaches the key resolver.
- *
- * Everything else goes to validatePassport and stays PASSPORT_MALFORMED: a value that is
- * not a plain JSON object, a missing or non-string record_type, the recognised
- * record_type with a missing or non-string version, and a broken 2.0 shape. Both
- * discriminators are read once, as own data properties, so an accessor cannot answer
- * differently here and in the schema check. An accessor on either is malformed.
- */
-function unrecognisedProfile(value: unknown): IdentityVerificationResult | null {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null
-  const prototype = Object.getPrototypeOf(value)
-  if (prototype !== Object.prototype && prototype !== null) return null
-  const recordType = ownData(value, 'record_type')
-  if (recordType === ACCESSOR) return invalid('PASSPORT_MALFORMED')
-  if (typeof recordType !== 'string') return null
-  if (recordType !== 'aps.agent-passport') {
-    return { state: 'unsupported', code: 'PASSPORT_UNSUPPORTED_RECORD_TYPE', proof_of_possession: false, key_authority: 'unresolved' }
-  }
-  const version = ownData(value, 'version')
-  if (version === ACCESSOR) return invalid('PASSPORT_MALFORMED')
-  if (typeof version !== 'string') return null
-  if (version !== '2.0') {
-    return { state: 'unsupported', code: 'PASSPORT_UNSUPPORTED_VERSION', proof_of_possession: false, key_authority: 'unresolved' }
-  }
-  return null
-}
-
-const ACCESSOR = Symbol('accessor')
-
-/** The value of an own data property, undefined when absent, ACCESSOR for a getter or setter. */
-function ownData(value: object, key: string): unknown {
-  const descriptor = Object.getOwnPropertyDescriptor(value, key)
-  if (!descriptor) return undefined
-  return 'value' in descriptor ? descriptor.value : ACCESSOR
 }
 
 function validatePassport(value: unknown): PassportV2 {

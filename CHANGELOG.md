@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+**`verifyPrincipalBindingV1` reports an unrecognised profile as unsupported.** A string
+`record_type` other than `aps.principal-binding`, or that record type with a string
+`version` other than `1.0`, now returns `unsupported` with
+`PRINCIPAL_BINDING_UNSUPPORTED_RECORD_TYPE` or `PRINCIPAL_BINDING_UNSUPPORTED_VERSION`
+instead of `invalid` with `PRINCIPAL_BINDING_MALFORMED`. Such a record is not judged
+against the 1.0 schema and never reaches the key resolver. A missing or non-string
+discriminator, an accessor on either, and a broken 1.0 shape stay malformed. This is the
+rule `verifyPassportV2` follows since #221, and both now share one implementation in
+`profile-recognition.ts`. Passport results are unchanged. Neither result admits the record.
+
 **`subDelegate` refuses a parent without a non-negative integer `maxDepth`, and
 `verifyDelegation` reads `maxDepth: null` as absent.** `subDelegate` used to mint a child
 under a parent without `maxDepth` with `createDelegation`'s default `maxDepth: 1` and
