@@ -175,7 +175,7 @@ export function subDelegate(opts: SubDelegateOptions): Delegation {
   // parent's currentDepth is 1 or more.
   const parentMaxDepth: unknown = (parent as { maxDepth?: unknown }).maxDepth
   const parentDepth: unknown = (parent as { currentDepth?: unknown }).currentDepth
-  const isDepth = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0
+  const isDepth = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0
   if (!isDepth(parentMaxDepth)) {
     throw new Error(
       'Cannot sub-delegate from a parent without a non-negative integer maxDepth: the parent carries no depth ceiling for the child to inherit',

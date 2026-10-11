@@ -90,7 +90,7 @@ describe('legacy Delegation without maxDepth', () => {
   })
 
   it('subDelegate refuses a non-integer or negative parent ceiling or depth', () => {
-    for (const changes of [{ maxDepth: null }, { maxDepth: '2' }, { maxDepth: 1.5 }, { maxDepth: -1 }, { maxDepth: 2, currentDepth: 0.5 }]) {
+    for (const changes of [{ maxDepth: null }, { maxDepth: '2' }, { maxDepth: true }, { maxDepth: 1.5 }, { maxDepth: -1 }, { maxDepth: 2 ** 53 }, { maxDepth: 2, currentDepth: 0.5 }, { maxDepth: 2, currentDepth: true }]) {
       const granter = generateKeyPair()
       const agent = generateKeyPair()
       const base = createDelegation({
