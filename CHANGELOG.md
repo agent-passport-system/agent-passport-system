@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+**A resolver answer that is not a plain object is `*_KEY_RESOLUTION_FAILED` (#228).**
+`classifyResolution` documented this but only refused null, non-objects and arrays, so a
+`Date` or class instance carrying `state` and `public_key_hex` was classified like a plain
+answer. It now also refuses an answer whose prototype is neither `Object.prototype` nor
+`null`, and a throwing `getPrototypeOf` trap is `RESOLUTION_FAILED`. This applies to
+`verifyPassportV2`, `verifyPrincipalBindingV1` and `verifyPrincipalBindingRevocationV1`. A
+null-prototype answer is still accepted. Before and after, a key taken from the answer
+still has to verify the record's signature.
+
 **BREAKING for callers that deny only on `invalid` or rely on `key_authority: rejected`.
 `verifyPrincipalBindingRevocationV1` applies the resolver outcome mapping and no longer
 throws on a failed resolution.** Only `state === 'valid'` establishes that the revocation
