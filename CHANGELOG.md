@@ -11,7 +11,11 @@ with `key_authority: unresolved`. `not_found`, `ambiguous` and `malformed` used 
 malformed material such as `"abc"` reached the signature check and returned
 `*_SIGNATURE_INVALID`. A resolver that throws or rejects,
 or answers outside the resolver contract, is `indeterminate` /
-`PRINCIPAL_BINDING_REVOCATION_KEY_RESOLUTION_FAILED`. It used to throw out of the verifier.
+`PRINCIPAL_BINDING_REVOCATION_KEY_RESOLUTION_FAILED`. Throwing or rejecting resolvers and
+answers without a state used to make the verifier throw. Other out-of-contract answers could
+return invalid, for example `{ state: "revoked" }` returned `*_KEY_REVOKED` with key
+authority rejected. A caller that relied on `invalid` with key authority rejected for these
+cases sees a behaviour change.
 Codes keep the `PRINCIPAL_BINDING_REVOCATION_KEY_*` form. Only the resolver call is
 guarded. A resolved key that does not verify the signature stays invalid. None of these
 results verifies the revocation, and none is evidence that the binding stays in force.
