@@ -108,6 +108,14 @@ export function createDelegation(opts: CreateDelegationOptions): Delegation {
   // 61200.00000000001ms) emits exactly the instant it emitted before.
   const expiresAtIso = opts.expiresAt ?? formatRfc3339(Math.trunc(now.getTime() + (opts.expiresInHours ?? 24) * 3600000))
 
+  // Refuse to sign a depth verifyDelegation would report malformed (#223). Without this the
+  // SDK could return a signed record, such as maxDepth 1.5, that its own verifier refuses.
+  const maxDepth = opts.maxDepth ?? 1
+  const currentDepth = opts.currentDepth ?? 0
+  const isDepth = (v: unknown): boolean => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0
+  if (!isDepth(maxDepth)) throw new Error('createDelegation: maxDepth must be a non-negative integer no greater than 2^53 - 1')
+  if (!isDepth(currentDepth)) throw new Error('createDelegation: currentDepth must be a non-negative integer no greater than 2^53 - 1')
+
   const delegation: Omit<Delegation, 'signature'> = {
     delegationId: 'del_' + uuidv4().slice(0, 12),
     delegatedTo: opts.delegatedTo,
@@ -118,8 +126,8 @@ export function createDelegation(opts: CreateDelegationOptions): Delegation {
     spendLimit: opts.spendLimit,
     spentAmount: 0,
     ...(opts.spendLimitUnit && { spendLimitUnit: opts.spendLimitUnit }),
-    maxDepth: opts.maxDepth ?? 1,
-    currentDepth: opts.currentDepth ?? 0,
+    maxDepth,
+    currentDepth,
     createdAt: now.toISOString(),
     notBefore: opts.notBefore ?? now.toISOString(),
     ...(opts.derivation_rights && { derivation_rights: opts.derivation_rights }),
@@ -519,9 +527,26 @@ export function verifyDelegation(delegation: Delegation, opts?: RevocationCheckO
   // (docs/SPEC-v1.1.md section 4.1). Before, `currentDepth > null` compared against 0, so
   // anyone holding a valid record without maxDepth could add a null member and flip it to
   // invalid without the key.
+  //
+  // A present maxDepth that is not a non-negative safe integer (a string such as "1", a
+  // boolean, a fraction, a negative) makes the record invalid. The comparison below used to
+  // coerce it, so "1" acted as 1 and true as 1, while the Python verifier skipped the
+  // comparison and accepted the same record at any depth (#223). No depth result is reported
+  // for it: depthExceeded stays false because the comparison was never made. A present
+  // currentDepth gets the same rule, for the same reason. An absent or null currentDepth is
+  // not compared, as before.
+  const isDepth = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0
+  const present = (v: unknown): boolean => v !== null && v !== undefined
   const signedMaxDepth = (delegation as { maxDepth?: unknown }).maxDepth
-  const depthExceeded = signedMaxDepth !== null && signedMaxDepth !== undefined &&
-    delegation.currentDepth > (signedMaxDepth as number)
+  const signedCurrentDepth = (delegation as { currentDepth?: unknown }).currentDepth
+  if (present(signedMaxDepth) && !isDepth(signedMaxDepth)) {
+    errors.push('Malformed maxDepth: not a non-negative integer')
+  }
+  if (present(signedCurrentDepth) && !isDepth(signedCurrentDepth)) {
+    errors.push('Malformed currentDepth: not a non-negative integer')
+  }
+  const depthExceeded = isDepth(signedMaxDepth) && isDepth(signedCurrentDepth) &&
+    signedCurrentDepth > signedMaxDepth
   if (depthExceeded) errors.push('Depth limit exceeded')
 
   return {
