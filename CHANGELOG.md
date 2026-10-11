@@ -2,8 +2,10 @@
 
 ## Unreleased
 
-**`verifyPrincipalBindingRevocationV1` applies the resolver outcome mapping and no longer
-throws on a failed resolution.** A resolver answer of `not_found`, `ambiguous`, `malformed`
+**BREAKING for callers that deny only on `invalid` or rely on `key_authority: rejected`.
+`verifyPrincipalBindingRevocationV1` applies the resolver outcome mapping and no longer
+throws on a failed resolution.** Only `state === 'valid'` establishes that the revocation
+verified. A resolver answer of `not_found`, `ambiguous`, `malformed`
 or `unreachable` now returns `indeterminate`, and `unsupported` returns `unsupported`, all
 with `key_authority: unresolved`. `not_found`, `ambiguous` and `malformed` used to return
 `invalid` with key authority rejected. A resolved answer without a 64-hex key is
