@@ -128,16 +128,16 @@ export async function verifyPassportV2(
   // section 3.5 outcome mapping, applied to the agent's own key (see
   // resolution-outcome.ts). Only a resolved key that differs from the passport's key
   // is an established key-authority failure.
-  const failure = classifyResolution(resolution)
-  if (failure) {
+  const classified = classifyResolution(resolution)
+  if (!classified.ok) {
     return {
-      state: failure.state,
-      code: `PASSPORT_KEY_${failure.outcome}`,
+      state: classified.failure.state,
+      code: `PASSPORT_KEY_${classified.failure.outcome}`,
       proof_of_possession: true,
       key_authority: 'unresolved',
     }
   }
-  if ((resolution as { public_key_hex: string }).public_key_hex.toLowerCase() !== publicKey) {
+  if (classified.public_key_hex !== publicKey) {
     return {
       ...invalid('PASSPORT_KEY_AUTHORITY_REJECTED'),
       proof_of_possession: true,

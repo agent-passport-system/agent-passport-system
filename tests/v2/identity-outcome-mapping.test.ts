@@ -257,3 +257,37 @@ test('principal binding: a resolver that throws is indeterminate, not an excepti
     state: 'indeterminate', code: 'PRINCIPAL_BINDING_KEY_RESOLUTION_FAILED', proof_of_possession: false, key_authority: 'unresolved',
   })
 })
+
+// ── Resolver answers that try to answer twice or throw while being read ──
+
+function hostileAnswers(key: string): Array<[string, () => unknown]> {
+  return [
+    ['state getter throws', () => Object.defineProperty({}, 'state', { enumerable: true, get() { throw new Error('boom') } })],
+    ['key getter throws', () => Object.defineProperty({ state: 'resolved' }, 'public_key_hex', { enumerable: true, get() { throw new Error('boom') } })],
+    ['state getter flips', () => {
+      let n = 0
+      return Object.defineProperty({ public_key_hex: key }, 'state', { enumerable: true, get() { n += 1; return n === 1 ? 'resolved' : 'not_found' } })
+    }],
+    ['key getter flips', () => {
+      let n = 0
+      return Object.defineProperty({ state: 'resolved' }, 'public_key_hex', { enumerable: true, get() { n += 1; return n === 1 ? key : '00'.repeat(32) } })
+    }],
+    ['proxy trap throws', () => new Proxy({}, { getOwnPropertyDescriptor() { throw new Error('boom') }, get() { throw new Error('boom') } })],
+  ]
+}
+
+for (const [label, make] of hostileAnswers(webKey)) {
+  test(`passport: resolver answer where ${label} is RESOLUTION_FAILED, never an exception`, async () => {
+    assert.deepEqual(await passportWith(make()), {
+      state: 'indeterminate', code: 'PASSPORT_KEY_RESOLUTION_FAILED', proof_of_possession: true, key_authority: 'unresolved',
+    })
+  })
+}
+
+for (const [label, make] of hostileAnswers(principal.publicKey)) {
+  test(`principal binding: resolver answer where ${label} is RESOLUTION_FAILED, never an exception`, async () => {
+    assert.deepEqual(await bindingWith(make()), {
+      state: 'indeterminate', code: 'PRINCIPAL_BINDING_KEY_RESOLUTION_FAILED', proof_of_possession: false, key_authority: 'unresolved',
+    })
+  })
+}

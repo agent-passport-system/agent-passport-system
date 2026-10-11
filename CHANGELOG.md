@@ -9,7 +9,8 @@ A resolver answer of `not_found`, `ambiguous`, `malformed` or `unreachable` now 
 `indeterminate` with `key_authority: unresolved`, and `unsupported` (identifier scheme)
 returns `unsupported`. Codes keep the `PASSPORT_KEY_*` and `PRINCIPAL_BINDING_KEY_*` form.
 A `resolved` answer without a 64-hex key is `indeterminate` with `*_KEY_MALFORMED`. An
-answer outside the resolver contract, or a resolver that throws or rejects, is
+answer outside the resolver contract, an answer whose members are accessors rather than
+data (read once, never invoked), or a resolver that throws or rejects, is
 `indeterminate` with `*_KEY_RESOLUTION_FAILED`, which is not one of the section 3.5 outcome
 names.
 Previously `not_found`, `malformed` and `unsupported` returned `invalid` with
@@ -35,8 +36,10 @@ rather than today's key. A resolved key that differs is reported as an establish
 only on that basis.
 
 None of these results admits a record. A caller must accept only `state === 'valid'`, and
-must not treat `unsupported` as a signal to try a weaker or legacy verifier unless the record
-carries that verifier's own discriminator, since an attacker chooses the profile string. A
+must not treat `unsupported` as a signal to try another verifier. A record's own
+discriminator is not permission, since an attacker chooses the profile string. A fallback is
+acceptable only to a profile the caller explicitly permits, verified under that profile's
+complete verification and trust policy. A
 caller that treated every result other than `invalid` as acceptance was already wrong for
 `unreachable` and `ambiguous` and is now wrong for more cases. The frozen vectors in
 `fixtures/agent-passport-v2/` are unchanged. Three of their cases record the earlier output

@@ -12,9 +12,10 @@
 // authority. The delegation and revocation verifiers in src/v2 already map the issuer's
 // key the same way.
 
-import type { HistoricalKeyResolutionResult, IdentityVerificationState } from './types.js'
+import type { IdentityVerificationState } from './types.js'
 
 const KEY_HEX = /^[0-9a-fA-F]{64}$/
+const STATES = new Set(['resolved', 'not_found', 'ambiguous', 'malformed', 'unreachable', 'unsupported'])
 
 export interface ResolutionFailure {
   state: Extract<IdentityVerificationState, 'indeterminate' | 'unsupported'>
@@ -22,26 +23,52 @@ export interface ResolutionFailure {
   outcome: 'NOT_FOUND' | 'AMBIGUOUS' | 'MALFORMED' | 'UNREACHABLE' | 'UNSUPPORTED' | 'RESOLUTION_FAILED'
 }
 
-/** Null when the resolver returned a usable 32-byte Ed25519 key as hex. Callers compare it lowercased. */
-export function classifyResolution(resolution: HistoricalKeyResolutionResult | unknown): ResolutionFailure | null {
-  const value = resolution as Partial<HistoricalKeyResolutionResult> | null | undefined
-  const state = value && typeof value === 'object' ? value.state : undefined
+/** Either the usable key, lowercased, or the failure to report. Computed once per answer. */
+export type ClassifiedResolution =
+  | { ok: true; public_key_hex: string }
+  | { ok: false; failure: ResolutionFailure }
+
+/**
+ * Read a resolver answer once and classify it. Only own data properties are read, so a
+ * getter is never invoked and cannot throw or answer differently on a second read. An
+ * answer that is not a plain object, carries an accessor or a state outside the contract,
+ * or cannot be inspected at all, is RESOLUTION_FAILED. Callers use the returned key and
+ * never read the original answer again.
+ */
+export function classifyResolution(resolution: unknown): ClassifiedResolution {
+  let state: unknown
+  let key: unknown
+  try {
+    if (resolution === null || typeof resolution !== 'object' || Array.isArray(resolution)) return failed()
+    const stateDescriptor = Object.getOwnPropertyDescriptor(resolution, 'state')
+    const keyDescriptor = Object.getOwnPropertyDescriptor(resolution, 'public_key_hex')
+    if (!stateDescriptor || !('value' in stateDescriptor)) return failed()
+    if (keyDescriptor && !('value' in keyDescriptor)) return failed()
+    state = stateDescriptor.value
+    key = keyDescriptor?.value
+  } catch {
+    // A proxy trap can throw from getOwnPropertyDescriptor.
+    return failed()
+  }
+  if (typeof state !== 'string' || !STATES.has(state)) return failed()
   switch (state) {
     case 'resolved':
-      return typeof value!.public_key_hex === 'string' && KEY_HEX.test(value!.public_key_hex)
-        ? null
-        : { state: 'indeterminate', outcome: 'MALFORMED' }
+      return typeof key === 'string' && KEY_HEX.test(key)
+        ? { ok: true, public_key_hex: key.toLowerCase() }
+        : { ok: false, failure: { state: 'indeterminate', outcome: 'MALFORMED' } }
     case 'unsupported':
-      return { state: 'unsupported', outcome: 'UNSUPPORTED' }
+      return { ok: false, failure: { state: 'unsupported', outcome: 'UNSUPPORTED' } }
     case 'not_found':
-      return { state: 'indeterminate', outcome: 'NOT_FOUND' }
+      return { ok: false, failure: { state: 'indeterminate', outcome: 'NOT_FOUND' } }
     case 'ambiguous':
-      return { state: 'indeterminate', outcome: 'AMBIGUOUS' }
+      return { ok: false, failure: { state: 'indeterminate', outcome: 'AMBIGUOUS' } }
     case 'malformed':
-      return { state: 'indeterminate', outcome: 'MALFORMED' }
-    case 'unreachable':
-      return { state: 'indeterminate', outcome: 'UNREACHABLE' }
+      return { ok: false, failure: { state: 'indeterminate', outcome: 'MALFORMED' } }
     default:
-      return { state: 'indeterminate', outcome: 'RESOLUTION_FAILED' }
+      return { ok: false, failure: { state: 'indeterminate', outcome: 'UNREACHABLE' } }
   }
+}
+
+function failed(): ClassifiedResolution {
+  return { ok: false, failure: { state: 'indeterminate', outcome: 'RESOLUTION_FAILED' } }
 }

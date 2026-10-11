@@ -95,11 +95,11 @@ export async function verifyPrincipalBindingV1(
   }
   // Same section 3.5 mapping as verifyPassportV2 (see resolution-outcome.ts). No
   // signature was checked in these branches, so none of them is a signature failure.
-  const failure = classifyResolution(resolution)
-  if (failure) {
+  const classified = classifyResolution(resolution)
+  if (!classified.ok) {
     return {
-      state: failure.state,
-      code: `PRINCIPAL_BINDING_KEY_${failure.outcome}`,
+      state: classified.failure.state,
+      code: `PRINCIPAL_BINDING_KEY_${classified.failure.outcome}`,
       proof_of_possession: false,
       key_authority: 'unresolved',
     }
@@ -108,7 +108,7 @@ export async function verifyPrincipalBindingV1(
   if (!verify(
     SIGNATURE_DOMAIN + canonicalizeJCS(signatureForm),
     binding.signature,
-    (resolution as { public_key_hex: string }).public_key_hex.toLowerCase(),
+    classified.public_key_hex,
   )) {
     return invalid('PRINCIPAL_BINDING_SIGNATURE_INVALID')
   }
