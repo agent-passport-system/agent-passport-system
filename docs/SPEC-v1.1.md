@@ -48,17 +48,27 @@ behaviour.
    when the caller omits it, and the field is signed. The TypeScript
    `verifyDelegation` and, from agent-passport-python `5530894`, the Python
    `verify_delegation` apply no depth ceiling to a signed record without
-   `maxDepth`, and compare a present numeric `maxDepth` as before. An absent
-   field does not establish that a record was written before v1.1, because a
-   writer can omit it at any time, so this is a compatibility rule for records
-   without the field and not a way to tell old records from new ones. A relying
+   `maxDepth`, and compare a present numeric `maxDepth` as before. The
+   canonical form drops members whose value is `null`, so `maxDepth: null` and
+   an absent `maxDepth` sign to the same bytes and are read the same way.
+   Verification reads the signed view, and the signature cannot show whether
+   the signer wrote the member at all. An absent field does not establish that
+   a record was written before v1.1, because a writer can omit it at any time,
+   so this is a compatibility rule for records without the field and not a way
+   to tell old records from new ones. This verifier checks one record against
+   itself and never consults the parent, so it does not establish chain depth
+   with or without the field. A relying party that needs a provable depth
+   constraint rejects legacy records without an explicitly signed numeric
+   limit, or uses the draft chain verifier. A relying
    party may apply a stricter acceptance policy, for example a ceiling of 1, as
    its own local policy. That is not the verification default described here.
    Minting is a separate question: `subDelegate` and `sub_delegate` refuse to
-   create a child under a parent without a numeric `maxDepth`, because
+   create a child under a parent without a non-negative integer `maxDepth`, because
    accepting a record is not permission to extend authority under it. The
    Python Auditability check (F-005 in `policy.py`) still reads an absent
-   `maxDepth` as 1 and is not changed by this clarification.
+   `maxDepth` as 1. It is a separate acceptance policy, not the verifier, and is
+   not changed by this clarification. Item 4 below (`>=` in section 5 against
+   `>` in both verifiers) is unchanged.
 4. **Depth comparison at verification (section 5).** Section 5 says agents
    MUST NOT accept delegations where `current_depth >= max_depth`. The
    TypeScript `verifyDelegation` reports a depth violation only when
