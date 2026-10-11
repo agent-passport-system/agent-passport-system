@@ -2,13 +2,41 @@
 
 ## Unreleased
 
+**`verifyPassportV2` and `verifyPrincipalBindingV1` map key resolution failures to
+indeterminate or unsupported, and an unrecognised passport profile to unsupported.**
+A resolver answer of `not_found`, `ambiguous`, `malformed` or `unreachable` now returns
+`indeterminate` with `key_authority: unresolved`, and `unsupported` (identifier scheme)
+returns `unsupported`. Codes keep the `PASSPORT_KEY_*` and `PRINCIPAL_BINDING_KEY_*` form.
+A `resolved` answer without a 64-hex key is `indeterminate` with `*_KEY_MALFORMED`, and an
+answer outside the resolver contract is `indeterminate` with `*_KEY_RESOLUTION_FAILED`.
+Previously `not_found`, `malformed` and `unsupported` returned `invalid` with
+`key_authority: rejected`, and for the principal binding `ambiguous` did too. This is the
+draft-04 section 3.5 mapping, which the delegation and revocation verifiers already apply
+to the issuer's key, now applied to the agent's own key and the principal's key. A key
+that resolves and differs is still `invalid`. A resolved key is now compared
+case-insensitively, so an uppercase hex answer for the same key verifies.
+
+A passport whose `record_type` and `version` are strings but not `aps.agent-passport` /
+`2.0` now returns `unsupported` with `PASSPORT_UNSUPPORTED_RECORD_TYPE` or
+`PASSPORT_UNSUPPORTED_VERSION` (record type first) and is not judged against the 2.0
+schema, where it returned `invalid` / `PASSPORT_MALFORMED`. A missing or non-string
+discriminator, or the supported profile with a broken shape, stays `PASSPORT_MALFORMED`.
+
+None of these results admits a record. A caller must accept only `state === 'valid'`. A
+caller that treated every result other than `invalid` as acceptance was already wrong for
+`unreachable` and `ambiguous` and is now wrong for more cases. The frozen vectors in
+`fixtures/agent-passport-v2/` are unchanged. Three of their cases record the earlier output
+(`did-web-resolver-not-found`, `record-type-changed`, `version-changed`), and the vector
+test now checks both that the file still records it and what the verifier returns today.
+Neither function is exported from the package entry.
+
 **`verifyPassportV2` reports an ambiguous historical key as indeterminate.** When the
 resolver answers `ambiguous`, the result is now `indeterminate` with
 `PASSPORT_KEY_AMBIGUOUS`, `proof_of_possession: true` and `key_authority: unresolved`,
 where it was `invalid` with `key_authority: rejected`. Draft-04 section 3.4 routes a
 key-selection boundary the evidence cannot settle through the ambiguous outcome of
 section 3.5, and that result is indeterminate. The passport is still not admitted.
-`not_found`, `malformed` and `unsupported` keep their mapping pending a scope decision.
+The other unsuccessful outcomes were decided later, see the entry above.
 The frozen vectors in `fixtures/agent-passport-v2/` are unchanged, since no case uses an
 ambiguous resolver. `verifyPassportV2` is not exported from the package entry.
 

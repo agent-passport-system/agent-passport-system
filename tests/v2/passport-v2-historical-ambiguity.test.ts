@@ -44,11 +44,10 @@ test('ambiguous with a key attached is still not admitted', async () => {
   assert.equal(out.key_authority, 'unresolved')
 })
 
-test('the other unsuccessful outcomes keep their mapping and never admit', async () => {
-  assert.equal((await run({ state: 'unreachable' })).state, 'indeterminate')
-  for (const state of ['not_found', 'malformed', 'unsupported'] as const) {
+test('the other unsuccessful outcomes never admit (full mapping in identity-outcome-mapping.test.ts)', async () => {
+  for (const state of ['not_found', 'malformed', 'unreachable', 'unsupported'] as const) {
     const out = await run({ state })
-    assert.equal(out.state, 'invalid', state)
-    assert.equal(out.key_authority, 'rejected', state)
+    assert.notEqual(out.state, 'valid', state)
+    assert.equal(out.key_authority, 'unresolved', state)
   }
 })

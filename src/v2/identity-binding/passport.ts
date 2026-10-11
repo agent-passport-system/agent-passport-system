@@ -24,6 +24,7 @@ import {
   assertUtcMilliseconds,
   sortedUnique,
 } from './validation.js'
+import { classifyResolution } from './resolution-outcome.js'
 
 const ID_DOMAIN = 'APS-PASSPORT-ID-V2\0'
 const SIGNATURE_DOMAIN = 'APS-PASSPORT-SIG-V2\0'
@@ -68,6 +69,8 @@ export async function verifyPassportV2(
   candidate: unknown,
   options: { now?: string; resolve_key?: HistoricalKeyResolver } = {},
 ): Promise<IdentityVerificationResult> {
+  const profile = unrecognisedProfile(candidate)
+  if (profile) return profile
   let passport: PassportV2
   try {
     passport = validatePassport(candidate)
@@ -115,21 +118,20 @@ export async function verifyPassportV2(
     verification_method: passport.verification_method,
     at: passport.issued_at,
   })
-  if (resolution.state !== 'resolved' || !resolution.public_key_hex) {
-    // Draft-04 section 3.4 routes a historical key-selection boundary that the
-    // evidence cannot settle through the ambiguous outcome of section 3.5, and
-    // that result is indeterminate: nothing was learned about key authority.
-    // The other unsuccessful outcomes keep their current mapping until their
-    // scope for the agent's own key is decided.
-    const unresolved = resolution.state === 'unreachable' || resolution.state === 'ambiguous'
+  // A resolution that produced no usable key leaves key authority unresolved: the
+  // section 3.5 outcome mapping, applied to the agent's own key (see
+  // resolution-outcome.ts). Only a resolved key that differs from the passport's key
+  // is an established key-authority failure.
+  const failure = classifyResolution(resolution)
+  if (failure) {
     return {
-      state: unresolved ? 'indeterminate' : 'invalid',
-      code: `PASSPORT_KEY_${resolution.state.toUpperCase()}`,
+      state: failure.state,
+      code: `PASSPORT_KEY_${failure.outcome}`,
       proof_of_possession: true,
-      key_authority: unresolved ? 'unresolved' : 'rejected',
+      key_authority: 'unresolved',
     }
   }
-  if (resolution.public_key_hex !== publicKey) {
+  if (resolution.public_key_hex!.toLowerCase() !== publicKey) {
     return {
       ...invalid('PASSPORT_KEY_AUTHORITY_REJECTED'),
       proof_of_possession: true,
@@ -137,6 +139,28 @@ export async function verifyPassportV2(
     }
   }
   return { state: 'valid', code: 'OK', proof_of_possession: true, key_authority: 'verified' }
+}
+
+/**
+ * An object whose record_type and version are both strings, but not the
+ * "aps.agent-passport" / "2.0" pair this verifier implements, is unsupported and is not
+ * judged against the 2.0 schema. That follows the rule draft-04 states for the other
+ * record families that define one (delegation chain verification, the revocation record
+ * format). A missing or non-string record_type or version, or anything that is not a
+ * plain object, is left to validatePassport and stays malformed.
+ */
+function unrecognisedProfile(value: unknown): IdentityVerificationResult | null {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null
+  const recordType = (value as Record<string, unknown>).record_type
+  const version = (value as Record<string, unknown>).version
+  if (typeof recordType !== 'string' || typeof version !== 'string') return null
+  if (recordType !== 'aps.agent-passport') {
+    return { state: 'unsupported', code: 'PASSPORT_UNSUPPORTED_RECORD_TYPE', proof_of_possession: false, key_authority: 'unresolved' }
+  }
+  if (version !== '2.0') {
+    return { state: 'unsupported', code: 'PASSPORT_UNSUPPORTED_VERSION', proof_of_possession: false, key_authority: 'unresolved' }
+  }
+  return null
 }
 
 function validatePassport(value: unknown): PassportV2 {
