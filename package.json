@@ -94,6 +94,13 @@
   "engines": {
     "node": ">=18.0.0"
   },
+  "devEngines": {
+    "packageManager": {
+      "name": "npm",
+      "version": "^10.8.2",
+      "onFail": "error"
+    }
+  },
   "files": [
     "dist/src/**/*",
     "src/v2/payment-rails/stripe-issuing/fixtures/**",
