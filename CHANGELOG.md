@@ -2,6 +2,180 @@
 
 ## Unreleased
 
+**A resolver answer that is not a plain object is `*_KEY_RESOLUTION_FAILED` (#228).**
+`classifyResolution` documented this but only refused null, non-objects and arrays, so a
+`Date` or class instance carrying `state` and `public_key_hex` was classified like a plain
+answer. It now also refuses an answer whose prototype is neither `Object.prototype` nor
+`null`, and a throwing `getPrototypeOf` trap is `RESOLUTION_FAILED`. This applies to
+`verifyPassportV2`, `verifyPrincipalBindingV1` and `verifyPrincipalBindingRevocationV1`. A
+null-prototype answer is still accepted. Before and after, a key taken from the answer
+still has to verify the record's signature.
+
+**BREAKING for callers that deny only on `invalid` or rely on `key_authority: rejected`.
+`verifyPrincipalBindingRevocationV1` applies the resolver outcome mapping and no longer
+throws on a failed resolution.** Only `state === 'valid'` establishes that the revocation
+verified. A resolver answer of `not_found`, `ambiguous`, `malformed`
+or `unreachable` now returns `indeterminate`, and `unsupported` returns `unsupported`, all
+with `key_authority: unresolved`. `not_found`, `ambiguous` and `malformed` used to return
+`invalid` with key authority rejected. A resolved answer without a 64-hex key is
+`*_KEY_MALFORMED`. Before, a missing or empty key returned `*_KEY_RESOLVED`, and nonempty
+malformed material such as `"abc"` reached the signature check and returned
+`*_SIGNATURE_INVALID`. A resolver that throws or rejects,
+or answers outside the resolver contract, is `indeterminate` /
+`PRINCIPAL_BINDING_REVOCATION_KEY_RESOLUTION_FAILED`. Throwing or rejecting resolvers and
+answers without a state used to make the verifier throw. Other out-of-contract answers could
+return invalid, for example `{ state: "revoked" }` returned `*_KEY_REVOKED` with key
+authority rejected. A caller that relied on `invalid` with key authority rejected for these
+cases sees a behaviour change.
+Codes keep the `PRINCIPAL_BINDING_REVOCATION_KEY_*` form. Only the resolver call is
+guarded. A resolved key that does not verify the signature stays invalid. None of these
+results verifies the revocation, and none is evidence that the binding stays in force.
+`verifyRevocationEvidence` still reports any non-valid binding revocation as `invalid`
+with the verifier's code.
+
+**Principal binding verification now reports `unsupported` for an unrecognised record type
+or version instead of `PRINCIPAL_BINDING_MALFORMED`.** The record type is read first. A
+string `record_type` other than `aps.principal-binding` is
+`PRINCIPAL_BINDING_UNSUPPORTED_RECORD_TYPE` whatever `version` holds, including no
+`version` at all. With the recognised record type, a string `version` other than `1.0` is
+`PRINCIPAL_BINDING_UNSUPPORTED_VERSION`. Such a record is not judged against the 1.0 schema
+and never reaches the key resolver. A missing, non-string or accessor `record_type` stays
+malformed, and so does a missing, non-string or accessor `version` on the recognised record
+type, and a broken 1.0 shape. Key resolution and principal authority checks are unchanged.
+This is the rule `verifyPassportV2` follows since #221, and both now share one
+implementation in `profile-recognition.ts`.
+
+**`verifyPassportV2` no longer throws on a proxy whose prototype or property descriptor
+trap throws.** Since #221 such an input threw out of the verifier. It is now
+`PASSPORT_MALFORMED`. The principal binding verifier gets the same
+guard. Other passport results are unchanged.
+
+**`verifyDelegation` rejects a signed record whose `maxDepth` or `currentDepth` is present
+but not a non-negative integer (#223).** The depth comparison used to coerce such a value,
+so `"1"` acted as 1 and `true` as 1, while the Python verifier skipped the comparison and
+accepted the same record at any depth. Both now report the record invalid with a
+`Malformed maxDepth` or `Malformed currentDepth` error, and `depthExceeded` stays false
+because no comparison was made. An absent or null member is not compared, as before. A
+negative `maxDepth`, which used to report `depthExceeded`, now reports the malformed error
+instead. Only the issuer can produce these values, since they are inside the signed bytes.
+`createDelegation` now refuses to sign such a `maxDepth` or `currentDepth`, so the SDK
+cannot return a signed record its own verifier rejects. The defaults and `null` are
+unchanged.
+
+**`subDelegate` refuses a parent without a non-negative integer `maxDepth`, and
+`verifyDelegation` reads `maxDepth: null` as absent.** `subDelegate` used to mint a child
+under a parent without `maxDepth` with `createDelegation`'s default `maxDepth: 1` and
+`currentDepth` parent + 1, which fails its own depth check whenever the parent's depth is 1
+or more. It now throws, and it also refuses a parent whose `maxDepth` or `currentDepth` is
+not a non-negative integer. `verifyDelegation` still applies no depth ceiling to a signed
+record without `maxDepth`, as `delegation-without-max-depth-at-depth-64` records. The
+canonical form drops null members, so `maxDepth: null` signs to the same bytes as an absent
+member. It used to be compared as 0, so a holder could add the null member and flip a valid
+record to invalid without the key. Both forms now get the same verdict. Errata item 3 in
+`docs/SPEC-v1.1.md` now states section 3.4 as the writer default and section 4.1 as the
+verification rule, says that absence does not show a record is old and that absent and null
+cannot be told apart in a signed record, and keeps minting separate from verification. The
+body of the document is unchanged.
+
+**BREAKING for callers that deny only on `invalid`. `verifyPassportV2` and
+`verifyPrincipalBindingV1` map key resolution failures to indeterminate or unsupported, and
+an unrecognised passport profile to unsupported.**
+A resolver answer of `not_found`, `ambiguous`, `malformed` or `unreachable` now returns
+`indeterminate` with `key_authority: unresolved`, and `unsupported` (identifier scheme)
+returns `unsupported`. Codes keep the `PASSPORT_KEY_*` and `PRINCIPAL_BINDING_KEY_*` form.
+A `resolved` answer without a 64-hex key is `indeterminate` with `*_KEY_MALFORMED`. An
+answer outside the resolver contract, an answer whose members are accessors rather than
+data (read once, never invoked), or a resolver that throws or rejects, is
+`indeterminate` with `*_KEY_RESOLUTION_FAILED`, which is not one of the section 3.5 outcome
+names.
+Previously `not_found`, `malformed` and `unsupported` returned `invalid` with
+`key_authority: rejected`, and for the principal binding `ambiguous` did too. This is the
+draft-04 section 3.5 mapping, which the delegation and revocation verifiers already apply
+to the issuer's key, now applied to the agent's own key and the principal's key. A key
+that resolves and differs is still `invalid`. A resolved key is now compared
+case-insensitively, so an uppercase hex answer for the same key verifies.
+
+A passport with a string `record_type` other than `aps.agent-passport` now returns
+`unsupported` / `PASSPORT_UNSUPPORTED_RECORD_TYPE`, whatever its `version` member holds.
+With that record type, a string `version` other than `2.0` returns `unsupported` /
+`PASSPORT_UNSUPPORTED_VERSION`. Both were `invalid` / `PASSPORT_MALFORMED`. An unsupported
+record is not judged against the 2.0 schema and never reaches the key resolver. A missing or
+non-string `record_type`, the recognised record type with a missing or non-string
+`version`, a discriminator defined as an accessor rather than a data property, and the 2.0
+profile with a broken shape stay `PASSPORT_MALFORMED`. A legacy v1 passport (no
+`record_type`) is therefore malformed, not unsupported.
+
+The resolver contract is now documented on `HistoricalKeyResolutionResult`: `resolved` means
+the key authorized at `at`, and a resolver that cannot select by time answers `ambiguous`
+rather than today's key. A resolved key that differs is reported as an established failure
+only on that basis.
+
+None of these results admits a record. A caller must accept only `state === 'valid'`, and
+must not treat `unsupported` as a signal to try another verifier. A record's own
+discriminator is not permission, since an attacker chooses the profile string. A fallback is
+acceptable only to a profile the caller explicitly permits, verified under that profile's
+complete verification and trust policy. A
+caller that treated every result other than `invalid` as acceptance was already wrong for
+`unreachable` and `ambiguous` and is now wrong for more cases. The frozen vectors in
+`fixtures/agent-passport-v2/` are unchanged. Three of their cases record the earlier output
+(`did-web-resolver-not-found`, `record-type-changed`, `version-changed`), and the vector
+test now checks both that the file still records it and what the verifier returns today.
+Neither function is exported from the package entry.
+
+**`verifyPassportV2` reports an ambiguous historical key as indeterminate.** When the
+resolver answers `ambiguous`, the result is now `indeterminate` with
+`PASSPORT_KEY_AMBIGUOUS`, `proof_of_possession: true` and `key_authority: unresolved`,
+where it was `invalid` with `key_authority: rejected`. Draft-04 section 3.4 routes a
+key-selection boundary the evidence cannot settle through the ambiguous outcome of
+section 3.5, and that result is indeterminate. The passport is still not admitted.
+The other unsuccessful outcomes were decided later, see the entry above.
+The frozen vectors in `fixtures/agent-passport-v2/` are unchanged, since no case uses an
+ambiguous resolver. `verifyPassportV2` is not exported from the package entry.
+
+**Correction to `fixtures/agent-passport-v2/`.** The `key_resolver.description` string in
+the vector file said the did:web key has a validity window containing `issued_at`. No
+entry has a window, which was removed before the family was merged in 949d77d. Only that
+string changes. Every case, outcome and preimage is byte identical. New file sha256
+`9fce76dbf13de9749a2ef52c8dedecce08e4874da0203b39a7d941eb479b5ac5`.
+
+**Frozen vectors for the legacy Action Receipt v1.1 surface, and errata for
+`docs/SPEC-v1.1.md`.** `fixtures/action-receipt-v1.1/` records twelve delegation cases
+and ten receipt cases from the pre-draft `Delegation` and `ActionReceipt` records,
+generated against `c31d94aa` (main after v7.2.1, delegation sources unchanged since
+that tag) with the write-boundary primitives `createDelegation` and `createReceipt`
+use and with `Date.now()` fixed at a stated instant. Each case names the function that
+produced its result, describes what that function checks and does not check, and
+states that no case establishes authorization. Issuance cases record their
+`subDelegate` or `createReceipt` inputs, and an accepted `createReceipt` output is
+compared with the case record, chain included. The errata list where the TypeScript
+SDK differs from the document, without changing the document's requirements: member
+names and shapes (the section 1.1 and 3.2 examples), `verifyReceipt` checking signature
+and version only, neither `verifyReceipt` nor `createReceipt` validating the receipt
+chain, the `maxDepth` default (written as 1, no ceiling at verification when absent,
+read as 0 by the Python SDK), the `>` depth comparison against section 5, the
+`fail_open` revocation default against section 2.3, and the section 4.2 example. No
+code change on the frozen surface. `recompute-independent.ts` recomputes the bytes,
+signatures and selected predicates with no SDK imports.
+`tests/v2/action-receipt-vectors.test.ts` runs the family in `npm test`.
+
+**Frozen vectors for `aps.agent-passport` 2.0.** `fixtures/agent-passport-v2/` records
+four valid cases and sixteen rejection or indeterminate cases for the draft-04 section
+3.1 record, generated against `c31d94aa` (main after v7.2.1, identity binding sources
+unchanged since that tag): preimage bytes, `passport_id`, signature, and the SDK's
+verification output, with a diagnostic `layers` view that is local to this family and
+not a format draft-04 requires. Five cases carry `sdk_observation` where the SDK output
+goes beyond the draft (unrecognised profile, key authority after a failed validity
+window, a key that is not found). Structural cases are re-sealed so only the named rule
+is broken. Deterministic keys derived from published labels, a frozen `now`, the key
+resolver as data, and a check that the resolver is asked at `issued_at`.
+`recompute-independent.ts` re-verifies every case with no SDK imports.
+`tests/v2/agent-passport-vectors.test.ts` runs the family in `npm test`. The record
+format and the verifier are unchanged. `issuePassportV2` and `verifyPassportV2` remain
+in-repo and are not exported from the package entry. Not covered and recorded as such:
+`verifyPassportV2` has no timestamp-evidence input, so a retired key returned for
+`issued_at` would be accepted on the claim alone, which draft-04 section 3.4 does not
+allow.
+
 **BREAKING: `computeExternalActionRefV1` accepts fewer inputs.** The external
 cross-ecosystem `action_ref` v1 helper (`action-ref-v1-jcs-sha256`) adds checks from the
 Domain paragraph of giskard09/argentum-core `docs/spec/action-ref.md` at commit

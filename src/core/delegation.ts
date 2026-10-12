@@ -108,6 +108,14 @@ export function createDelegation(opts: CreateDelegationOptions): Delegation {
   // 61200.00000000001ms) emits exactly the instant it emitted before.
   const expiresAtIso = opts.expiresAt ?? formatRfc3339(Math.trunc(now.getTime() + (opts.expiresInHours ?? 24) * 3600000))
 
+  // Refuse to sign a depth verifyDelegation would report malformed (#223). Without this the
+  // SDK could return a signed record, such as maxDepth 1.5, that its own verifier refuses.
+  const maxDepth = opts.maxDepth ?? 1
+  const currentDepth = opts.currentDepth ?? 0
+  const isDepth = (v: unknown): boolean => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0
+  if (!isDepth(maxDepth)) throw new Error('createDelegation: maxDepth must be a non-negative integer no greater than 2^53 - 1')
+  if (!isDepth(currentDepth)) throw new Error('createDelegation: currentDepth must be a non-negative integer no greater than 2^53 - 1')
+
   const delegation: Omit<Delegation, 'signature'> = {
     delegationId: 'del_' + uuidv4().slice(0, 12),
     delegatedTo: opts.delegatedTo,
@@ -118,8 +126,8 @@ export function createDelegation(opts: CreateDelegationOptions): Delegation {
     spendLimit: opts.spendLimit,
     spentAmount: 0,
     ...(opts.spendLimitUnit && { spendLimitUnit: opts.spendLimitUnit }),
-    maxDepth: opts.maxDepth ?? 1,
-    currentDepth: opts.currentDepth ?? 0,
+    maxDepth,
+    currentDepth,
     createdAt: now.toISOString(),
     notBefore: opts.notBefore ?? now.toISOString(),
     ...(opts.derivation_rights && { derivation_rights: opts.derivation_rights }),
@@ -166,6 +174,24 @@ export interface SubDelegateOptions {
  */
 export function subDelegate(opts: SubDelegateOptions): Delegation {
   const parent = opts.parentDelegation
+
+  // verifyDelegation applies no depth ceiling to a signed record without maxDepth
+  // (docs/SPEC-v1.1.md section 4.1). That is about accepting a record, not about minting
+  // new authority under it: a parent with no ceiling has no signed value for the child to
+  // inherit. Without this check the child was minted with createDelegation's default
+  // maxDepth 1 and currentDepth parent + 1, which fails its own depth check whenever the
+  // parent's currentDepth is 1 or more.
+  const parentMaxDepth: unknown = (parent as { maxDepth?: unknown }).maxDepth
+  const parentDepth: unknown = (parent as { currentDepth?: unknown }).currentDepth
+  const isDepth = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0
+  if (!isDepth(parentMaxDepth)) {
+    throw new Error(
+      'Cannot sub-delegate from a parent without a non-negative integer maxDepth: the parent carries no depth ceiling for the child to inherit',
+    )
+  }
+  if (!isDepth(parentDepth)) {
+    throw new Error('Cannot sub-delegate from a parent without a non-negative integer currentDepth')
+  }
 
   const newDepth = parent.currentDepth + 1
   if (newDepth > parent.maxDepth) {
@@ -495,7 +521,32 @@ export function verifyDelegation(delegation: Delegation, opts?: RevocationCheckO
     )
   }
 
-  const depthExceeded = delegation.currentDepth > delegation.maxDepth
+  // Verification reads the signed view. The canonical form drops members whose value is
+  // null, so a record with maxDepth: null and the same record without maxDepth carry the
+  // same signature. Both are treated as absent, which has no depth ceiling here
+  // (docs/SPEC-v1.1.md section 4.1). Before, `currentDepth > null` compared against 0, so
+  // anyone holding a valid record without maxDepth could add a null member and flip it to
+  // invalid without the key.
+  //
+  // A present maxDepth that is not a non-negative safe integer (a string such as "1", a
+  // boolean, a fraction, a negative) makes the record invalid. The comparison below used to
+  // coerce it, so "1" acted as 1 and true as 1, while the Python verifier skipped the
+  // comparison and accepted the same record at any depth (#223). No depth result is reported
+  // for it: depthExceeded stays false because the comparison was never made. A present
+  // currentDepth gets the same rule, for the same reason. An absent or null currentDepth is
+  // not compared, as before.
+  const isDepth = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0
+  const present = (v: unknown): boolean => v !== null && v !== undefined
+  const signedMaxDepth = (delegation as { maxDepth?: unknown }).maxDepth
+  const signedCurrentDepth = (delegation as { currentDepth?: unknown }).currentDepth
+  if (present(signedMaxDepth) && !isDepth(signedMaxDepth)) {
+    errors.push('Malformed maxDepth: not a non-negative integer')
+  }
+  if (present(signedCurrentDepth) && !isDepth(signedCurrentDepth)) {
+    errors.push('Malformed currentDepth: not a non-negative integer')
+  }
+  const depthExceeded = isDepth(signedMaxDepth) && isDepth(signedCurrentDepth) &&
+    signedCurrentDepth > signedMaxDepth
   if (depthExceeded) errors.push('Depth limit exceeded')
 
   return {

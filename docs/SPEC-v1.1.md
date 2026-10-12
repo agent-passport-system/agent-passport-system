@@ -6,6 +6,92 @@
 **Extends:** Agent Passport Protocol v1.0  
 **Dependencies:** Ed25519 (existing), no new external dependencies  
 
+## Errata (2026-10-10)
+
+This document describes the legacy, pre-draft surface implemented in
+`src/core/delegation.ts`. That surface is frozen, so the body below is left as
+written. The items below record where the TypeScript SDK at
+`c31d94aad86713ae9b2e4cbc811deeab4b5d91ed` (main after the v7.2.1 tag,
+unreleased) differs from the body. They describe that implementation and do not
+change the requirements in the body. Item 3 is the exception: sections 3.4 and
+4.1 contradict each other, and item 3 also states how this document is to be
+read where they do. Other implementations, including the
+Python SDK, may differ. Differences not listed here are not resolved by this
+section. The vectors in `fixtures/action-receipt-v1.1/` record the TypeScript
+behaviour.
+
+1. **Member names and shapes (sections 1.1 and 3.2).** The examples use
+   snake_case names (`receipt_id`, `agent_id`, `delegation_id`, `scope_used`,
+   `delegation_chain`, `max_depth`, `current_depth`). The section 3.2 example
+   also uses `delegator`, `delegate`, a `spend_limit` object with `amount` and
+   `currency`, and `expires_at`. The TypeScript SDK emits and signs
+   `receiptId`, `agentId`, `delegationId`, `action.scopeUsed` and
+   `delegationChain` on a receipt (type `ActionReceipt` in
+   `src/types/passport.ts`). On a delegation it emits and signs
+   `delegationId`, `delegatedTo`, `delegatedBy`, `scope`, `spendLimit` as a
+   number, `spentAmount`, `maxDepth`, `currentDepth`, `expiresAt`, `notBefore`
+   and `createdAt`, and when set, `scopeInterpretation`, `spendLimitUnit`,
+   `credentialCheckPolicy`, and `derivation_rights` and `observation_policy`
+   in snake_case. Member names are inside the canonical bytes, so renaming the
+   members of a signed record without re-signing invalidates its signature.
+2. **What each function checks (section 1.3).** `verifyReceipt` checks the
+   signature under the supplied key and that `version` is `1.1`.
+   `createReceipt` checks the supplied delegation, the action's scope and the
+   remaining budget, and copies the supplied `delegationChain` without
+   validating it. `subDelegate` checks the proposed child against its parent
+   and then verifies the parent. Neither `verifyReceipt` nor `createReceipt`
+   validates the receipt chain. Steps 2 to 4 of section 1.3 are not performed
+   by `verifyReceipt`, and a relying party needs a separate check for them.
+3. **`max_depth` default (sections 3.4 and 4.1).** The two sections state
+   different defaults. Reading (2026-10-11): section 3.4 is the default a
+   writer applies when its caller omits the field, and section 4.1 governs
+   verification of a signed record without it. The TypeScript
+   `createDelegation` and the Python `create_delegation` write `maxDepth: 1`
+   when the caller omits it, and the field is signed. The TypeScript
+   `verifyDelegation` and, from agent-passport-python `5530894`, the Python
+   `verify_delegation` apply no depth ceiling to a signed record without
+   `maxDepth`, and compare a present numeric `maxDepth` as before. The
+   canonical form drops members whose value is `null`, so `maxDepth: null` and
+   an absent `maxDepth` sign to the same bytes and are read the same way.
+   Verification reads the signed view, and the signature cannot show whether
+   the signer wrote the member at all. An absent field does not establish that
+   a record was written before v1.1, because a writer can omit it at any time,
+   so this is a compatibility rule for records without the field and not a way
+   to tell old records from new ones. This verifier checks one record against
+   itself and never consults the parent, so it does not establish chain depth
+   with or without the field. A relying party that needs a provable depth
+   constraint rejects legacy records without an explicitly signed numeric
+   limit, or uses the draft chain verifier. A relying
+   party may apply a stricter acceptance policy, for example a ceiling of 1, as
+   its own local policy. That is not the verification default described here.
+   Minting is a separate question: `subDelegate` and `sub_delegate` refuse to
+   create a child under a parent without a non-negative integer `maxDepth`, because
+   accepting a record is not permission to extend authority under it. The
+   Python Auditability check (F-005 in `policy.py`) still reads an absent
+   `maxDepth` as 1. It is a separate acceptance policy, not the verifier, and is
+   not changed by this clarification. Item 4 below (`>=` in section 5 against
+   `>` in both verifiers) is unchanged.
+4. **Depth comparison at verification (section 5).** Section 5 says agents
+   MUST NOT accept delegations where `current_depth >= max_depth`. The
+   TypeScript `verifyDelegation` reports a depth violation only when
+   `currentDepth > maxDepth`, so a delegation at `currentDepth` 1 with
+   `maxDepth` 1 verifies. `subDelegate` refuses to mint a child when the
+   parent's `currentDepth + 1 > maxDepth`, which matches the section 3.3
+   refusal of sub-delegation at `current_depth >= max_depth`.
+5. **Revocation (section 2.3).** Section 2.3 says verifiers MUST check
+   revocation status before accepting any delegation. The TypeScript
+   `verifyDelegation` takes revocation evidence as an optional input, and its
+   default policy is `fail_open`, so with no evidence supplied it returns
+   valid. A caller that needs the section 2.3 behaviour supplies the evidence
+   and a stricter policy.
+6. **The reference example (section 4.2).** `verifyReceipt(receipt)` without a
+   public key, and a result carrying `delegationValid`, `scopeValid` and
+   `spendValid`, are not the shipped API. The shipped call is
+   `verifyReceipt(receipt, agentPublicKey)` and it returns
+   `{ valid, errors }`, with the checks of item 2.
+7. **Canonical form.** APS canonical JSON (`docs/CANONICAL-SPEC.md`), not RFC
+   8785. Object members whose value is `null` or `undefined` are omitted.
+
 ---
 
 ## Abstract

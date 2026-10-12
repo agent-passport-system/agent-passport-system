@@ -1,0 +1,1464 @@
+{
+  "family": "action-receipt",
+  "version": "v1.1",
+  "status": "Legacy, pre-draft, frozen. Not on the draft-pidlisnyi-aps path. The draft-path records are AuthorityDelegationV1 (aps:authority-delegation:v1) and receipt-core v1.",
+  "spec": "docs/SPEC-v1.1.md, as implemented in the TypeScript src/core/delegation.ts and typed in src/types/passport.ts. Where the document and this implementation differ, these vectors record the implementation, and the document carries a dated errata section listing the differences. Neither the vectors nor the errata change the requirements of the document, and other implementations may differ.",
+  "module": "src/core/delegation.ts (createDelegation, subDelegate, verifyDelegation, createReceipt, verifyReceipt), src/core/canonical.ts",
+  "generated_at": "2026-10-10",
+  "sdk_reference": {
+    "repository": "aeoess/agent-passport-system",
+    "release": "main after the v7.2.1 tag (git describe: v7.2.1-14-gc31d94a), unreleased",
+    "commit": "c31d94aad86713ae9b2e4cbc811deeab4b5d91ed",
+    "note": "Every verification and issuance value was produced by the TypeScript reference implementation at this commit. The delegation, canonicalization, crypto and type sources are unchanged between the v7.2.1 tag and this commit. The vector files are added on top of that commit."
+  },
+  "verification_instant": "2026-10-10T12:00:00.000Z",
+  "how_to_read": "Each case records what one SDK function returned for one record. `verification_scope` names the function that produced `verification` and lists, as a static description of that function, what it checks and does not check. It is not a trace of the checks a given call reached. `issuance`, where present, records the inputs given to subDelegate or createReceipt and whether they were accepted. For an accepted createReceipt call the returned receipt was compared with the case record. A `valid: true` here is one function's result. No case establishes that an action was authorized, and establishes_authorization is false on every case.",
+  "wire_shape": {
+    "note": "The TypeScript SDK at the pinned commit emits and signs camelCase member names: receiptId, agentId, delegationId, action.scopeUsed, delegationChain on a receipt, delegationId, delegatedTo, delegatedBy, scope, expiresAt, spendLimit, spentAmount, maxDepth, currentDepth, createdAt, notBefore on a delegation, and when set, scopeInterpretation, spendLimitUnit, credentialCheckPolicy, and derivation_rights and observation_policy in snake_case. The docs/SPEC-v1.1.md section 1.1 and 3.2 examples use other names and shapes. Renaming the members of a signed record without re-signing invalidates its signature (receipt-snake-case-spelling).",
+    "canonicalization": "APS canonical JSON (src/core/canonical.ts, docs/CANONICAL-SPEC.md): keys sorted by UTF-16 code units, members whose value is null or undefined omitted, array nulls preserved, no whitespace. Not RFC 8785, since the null omission rule differs.",
+    "signature": "Ed25519 over the UTF-8 bytes of the canonical form of the record without its signature member. No domain tag. Raw 64-byte signature as 128 lowercase hex. Keys are raw 32-byte Ed25519 public keys as 64 lowercase hex.",
+    "receipt_signer": "the executing agent. verifyReceipt takes the agent public key as a parameter and does not resolve it from the receipt.",
+    "delegation_signer": "delegatedBy. verifyDelegation reads the key from the record."
+  },
+  "what_each_function_checks": {
+    "verifyReceipt": "the signature under the supplied key and that version is 1.1.",
+    "verifyDelegation": "one record alone: signature under delegatedBy, expiresAt and notBefore against the clock, currentDepth > maxDepth when maxDepth is present, revocation evidence when supplied. The default revocation policy is fail_open, so with no evidence it returns valid. The parent is not consulted.",
+    "createReceipt": "the supplied delegation (verifyDelegation), the action scope against that delegation, the spend against its remaining budget. It copies the supplied delegationChain into the receipt without validating it.",
+    "subDelegate": "the proposed child against the parent (depth, scope, spend unit, spend), the parent expiry, then the parent itself (verifyDelegation), in that order.",
+    "summary": "Neither verifyReceipt nor createReceipt validates the receipt chain. A relying party needs a separate chain check.",
+    "max_depth": "createDelegation writes maxDepth 1 when the caller omits it. verifyDelegation applies no depth ceiling to a signed record without maxDepth. The writer default and the reader behaviour are not equivalent. Other implementations differ here, see the errata."
+  },
+  "determinism": "Records are assembled with canonicalizeForWrite + sign, the write-boundary primitives createDelegation and createReceipt use, over fixed identifiers and timestamps. Keys are sha256 of \"agent-passport-system:action-receipt-vector:<label>\". Every SDK call runs with Date.now() fixed at verification_instant. Values the SDK takes from new Date() or a uuid are compared only where they are excluded by name, and never written into the file. Two generator runs are byte identical.",
+  "keys": [
+    {
+      "label": "principal-key",
+      "seed_label": "agent-passport-system:action-receipt-vector:principal-key",
+      "seed_derivation": "sha256(utf8(seed_label)), the 32 bytes ARE the Ed25519 seed",
+      "private_key_hex": "226a4c711cee88ee0d3c9a9d86a71950d3c5ae484a12e9b9f9f468e635ef17b8",
+      "public_key_hex": "e5bce9bdc3f0b75305f6066f2869412f779b34834d43ba110ee110d9676c6068"
+    },
+    {
+      "label": "agent-key",
+      "seed_label": "agent-passport-system:action-receipt-vector:agent-key",
+      "seed_derivation": "sha256(utf8(seed_label)), the 32 bytes ARE the Ed25519 seed",
+      "private_key_hex": "13dc858f6cbdade6d69bc8a4092433bd5bd12088dcb509af45bb7ee4e7684294",
+      "public_key_hex": "cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06"
+    },
+    {
+      "label": "subagent-key",
+      "seed_label": "agent-passport-system:action-receipt-vector:subagent-key",
+      "seed_derivation": "sha256(utf8(seed_label)), the 32 bytes ARE the Ed25519 seed",
+      "private_key_hex": "96a281e6ba6a7fbdac0c2f58f1ca1835bb89c859444ca71f326564e76215311a",
+      "public_key_hex": "6fbf1a1923fdafe8bd87b7b76f612b67d62d80b5e926d23f7748ead96d85e57c"
+    },
+    {
+      "label": "other-key",
+      "seed_label": "agent-passport-system:action-receipt-vector:other-key",
+      "seed_derivation": "sha256(utf8(seed_label)), the 32 bytes ARE the Ed25519 seed",
+      "private_key_hex": "7df7b8af21def14467ad7d3d6b8a2d85aa48f4d1c5262fc715948bd1cbede779",
+      "public_key_hex": "c9357594e04369a0786a0592da098e27de16256cf541690e97540e026cfab075"
+    }
+  ],
+  "preimages": {
+    "valid-root-delegation": {
+      "signature_preimage_hex": "7b22637265617465644174223a22323032362d31302d30315430303a30303a30302e3030305a222c2263757272656e744465707468223a302c2264656c6567617465644279223a2265356263653962646333663062373533303566363036366632383639343132663737396233343833346434336261313130656531313064393637366336303638222c2264656c656761746564546f223a2263663463623832373938623833393431323965623539613538353334386666386234383636333830633733373663633230643531633162343431666666633036222c2264656c65676174696f6e4964223a2264656c5f766563746f725f726f6f74222c22657870697265734174223a22323032372d31302d30315430303a30303a30302e3030305a222c226d61784465707468223a312c226e6f744265666f7265223a22323032362d31302d30315430303a30303a30302e3030305a222c2273636f7065223a5b22636f6d6d657263653a636865636b6f7574222c22646174613a72656164225d2c227370656e644c696d6974223a3530302c227370656e74416d6f756e74223a307d",
+      "signature_preimage_text": "{\"createdAt\":\"2026-10-01T00:00:00.000Z\",\"currentDepth\":0,\"delegatedBy\":\"e5bce9bdc3f0b75305f6066f2869412f779b34834d43ba110ee110d9676c6068\",\"delegatedTo\":\"cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06\",\"delegationId\":\"del_vector_root\",\"expiresAt\":\"2027-10-01T00:00:00.000Z\",\"maxDepth\":1,\"notBefore\":\"2026-10-01T00:00:00.000Z\",\"scope\":[\"commerce:checkout\",\"data:read\"],\"spendLimit\":500,\"spentAmount\":0}"
+    },
+    "valid-child-delegation": {
+      "signature_preimage_hex": "7b22637265617465644174223a22323032362d31302d30315430303a30303a30302e3030305a222c2263757272656e744465707468223a312c2264656c6567617465644279223a2263663463623832373938623833393431323965623539613538353334386666386234383636333830633733373663633230643531633162343431666666633036222c2264656c656761746564546f223a2236666266316131393233666461666538626438376237623736663631326236376436326438306235653932366432336637373438656164393664383565353763222c2264656c65676174696f6e4964223a2264656c5f766563746f725f6368696c64222c22657870697265734174223a22323032372d31302d30315430303a30303a30302e3030305a222c226d61784465707468223a312c226e6f744265666f7265223a22323032362d31302d30315430303a30303a30302e3030305a222c2273636f7065223a5b22646174613a72656164225d2c227370656e644c696d6974223a3130302c227370656e644c696d6974556e6974223a2263757272656e6379222c227370656e74416d6f756e74223a307d",
+      "signature_preimage_text": "{\"createdAt\":\"2026-10-01T00:00:00.000Z\",\"currentDepth\":1,\"delegatedBy\":\"cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06\",\"delegatedTo\":\"6fbf1a1923fdafe8bd87b7b76f612b67d62d80b5e926d23f7748ead96d85e57c\",\"delegationId\":\"del_vector_child\",\"expiresAt\":\"2027-10-01T00:00:00.000Z\",\"maxDepth\":1,\"notBefore\":\"2026-10-01T00:00:00.000Z\",\"scope\":[\"data:read\"],\"spendLimit\":100,\"spendLimitUnit\":\"currency\",\"spentAmount\":0}"
+    },
+    "valid-receipt-under-root": {
+      "signature_preimage_hex": "7b22616374696f6e223a7b226d6574686f64223a22504f5354202f636865636b6f7574222c2273636f706555736564223a22636f6d6d657263653a636865636b6f7574222c227370656e64223a7b22616d6f756e74223a3132302c2263757272656e6379223a22555344227d2c22746172676574223a2273686f702e6578616d706c65222c2274797065223a226170695f63616c6c227d2c226167656e744964223a2263663463623832373938623833393431323965623539613538353334386666386234383636333830633733373663633230643531633162343431666666633036222c2264656c65676174696f6e436861696e223a5b2265356263653962646333663062373533303566363036366632383639343132663737396233343833346434336261313130656531313064393637366336303638222c2263663463623832373938623833393431323965623539613538353334386666386234383636333830633733373663633230643531633162343431666666633036225d2c2264656c65676174696f6e4964223a2264656c5f766563746f725f726f6f74222c22726563656970744964223a22726370745f766563746f725f30303031222c22726573756c74223a7b22737461747573223a2273756363657373222c2273756d6d617279223a226f7264657220706c61636564227d2c2274696d657374616d70223a22323032362d31302d31305431313a30303a30302e3030305a222c2276657273696f6e223a22312e31227d",
+      "signature_preimage_text": "{\"action\":{\"method\":\"POST /checkout\",\"scopeUsed\":\"commerce:checkout\",\"spend\":{\"amount\":120,\"currency\":\"USD\"},\"target\":\"shop.example\",\"type\":\"api_call\"},\"agentId\":\"cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06\",\"delegationChain\":[\"e5bce9bdc3f0b75305f6066f2869412f779b34834d43ba110ee110d9676c6068\",\"cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06\"],\"delegationId\":\"del_vector_root\",\"receiptId\":\"rcpt_vector_0001\",\"result\":{\"status\":\"success\",\"summary\":\"order placed\"},\"timestamp\":\"2026-10-10T11:00:00.000Z\",\"version\":\"1.1\"}"
+    },
+    "valid-receipt-under-child": {
+      "signature_preimage_hex": "7b22616374696f6e223a7b2273636f706555736564223a22646174613a72656164222c22746172676574223a2264622e6578616d706c65222c2274797065223a226170695f63616c6c227d2c226167656e744964223a2236666266316131393233666461666538626438376237623736663631326236376436326438306235653932366432336637373438656164393664383565353763222c2264656c65676174696f6e436861696e223a5b2265356263653962646333663062373533303566363036366632383639343132663737396233343833346434336261313130656531313064393637366336303638222c2263663463623832373938623833393431323965623539613538353334386666386234383636333830633733373663633230643531633162343431666666633036222c2236666266316131393233666461666538626438376237623736663631326236376436326438306235653932366432336637373438656164393664383565353763225d2c2264656c65676174696f6e4964223a2264656c5f766563746f725f6368696c64222c22726563656970744964223a22726370745f766563746f725f30303032222c22726573756c74223a7b22737461747573223a2273756363657373222c2273756d6d617279223a22726f77732072656164227d2c2274696d657374616d70223a22323032362d31302d31305431313a30303a30302e3030305a222c2276657273696f6e223a22312e31227d",
+      "signature_preimage_text": "{\"action\":{\"scopeUsed\":\"data:read\",\"target\":\"db.example\",\"type\":\"api_call\"},\"agentId\":\"6fbf1a1923fdafe8bd87b7b76f612b67d62d80b5e926d23f7748ead96d85e57c\",\"delegationChain\":[\"e5bce9bdc3f0b75305f6066f2869412f779b34834d43ba110ee110d9676c6068\",\"cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06\",\"6fbf1a1923fdafe8bd87b7b76f612b67d62d80b5e926d23f7748ead96d85e57c\"],\"delegationId\":\"del_vector_child\",\"receiptId\":\"rcpt_vector_0002\",\"result\":{\"status\":\"success\",\"summary\":\"rows read\"},\"timestamp\":\"2026-10-10T11:00:00.000Z\",\"version\":\"1.1\"}"
+    }
+  },
+  "delegation_cases": [
+    {
+      "name": "valid-root-delegation",
+      "description": "principal -> agent, maxDepth 1, currentDepth 0, 500 USD.",
+      "record": {
+        "delegationId": "del_vector_root",
+        "delegatedTo": "cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06",
+        "delegatedBy": "e5bce9bdc3f0b75305f6066f2869412f779b34834d43ba110ee110d9676c6068",
+        "scope": [
+          "commerce:checkout",
+          "data:read"
+        ],
+        "expiresAt": "2027-10-01T00:00:00.000Z",
+        "spendLimit": 500,
+        "spentAmount": 0,
+        "maxDepth": 1,
+        "currentDepth": 0,
+        "createdAt": "2026-10-01T00:00:00.000Z",
+        "notBefore": "2026-10-01T00:00:00.000Z",
+        "signature": "09df6cd285bbcadb24e2866cc60a6aee75175260d1805d6e8303f16c7f30ce0d394bae572d0086ad5f68e667b543e53c6d95b21039583fafef11948a66f90808"
+      },
+      "verification_scope": {
+        "function": "verifyDelegation",
+        "nature": "Static description of the function at the pinned commit. Not a trace of the checks reached by this call: a refusal can happen before later listed checks run.",
+        "checks": [
+          "Ed25519 signature under delegatedBy over the canonical record without signature",
+          "expiresAt against the verification instant (expired only when expiresAt < instant)",
+          "notBefore against the verification instant (not yet valid only when notBefore > instant)",
+          "currentDepth > maxDepth, only when maxDepth is present",
+          "revocation evidence when the caller supplies it (none is supplied in this family, and the default policy is fail_open)"
+        ],
+        "not_checked": [
+          "the parent delegation",
+          "scope, spend and depth against the parent",
+          "that delegatedBy holds any authority"
+        ],
+        "establishes_authorization": false
+      },
+      "verification": {
+        "valid": true,
+        "revoked": false,
+        "expired": false,
+        "notYetValid": false,
+        "depthExceeded": false,
+        "errors": [],
+        "revocationEvidence": "absent"
+      }
+    },
+    {
+      "name": "valid-child-delegation",
+      "description": "agent -> subagent, scope and budget narrower than the root, currentDepth 1 of maxDepth 1. Has the same members as the child subDelegate mints from the root, with equal values apart from delegationId, createdAt, expiresAt, signature (checked at generation). The record itself is assembled and signed separately.",
+      "record": {
+        "delegationId": "del_vector_child",
+        "delegatedTo": "6fbf1a1923fdafe8bd87b7b76f612b67d62d80b5e926d23f7748ead96d85e57c",
+        "delegatedBy": "cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06",
+        "scope": [
+          "data:read"
+        ],
+        "expiresAt": "2027-10-01T00:00:00.000Z",
+        "spendLimit": 100,
+        "spentAmount": 0,
+        "spendLimitUnit": "currency",
+        "maxDepth": 1,
+        "currentDepth": 1,
+        "createdAt": "2026-10-01T00:00:00.000Z",
+        "notBefore": "2026-10-01T00:00:00.000Z",
+        "signature": "44b4c84402d1830c614cf9de0a0754e3b2ab62fbf9b2ba6bca46fdcaae09fec97e3eb561c370d11ba790f69d24614210dc1047a586ba8e28d33170ee34ae5500"
+      },
+      "verification_scope": {
+        "function": "verifyDelegation",
+        "nature": "Static description of the function at the pinned commit. Not a trace of the checks reached by this call: a refusal can happen before later listed checks run.",
+        "checks": [
+          "Ed25519 signature under delegatedBy over the canonical record without signature",
+          "expiresAt against the verification instant (expired only when expiresAt < instant)",
+          "notBefore against the verification instant (not yet valid only when notBefore > instant)",
+          "currentDepth > maxDepth, only when maxDepth is present",
+          "revocation evidence when the caller supplies it (none is supplied in this family, and the default policy is fail_open)"
+        ],
+        "not_checked": [
+          "the parent delegation",
+          "scope, spend and depth against the parent",
+          "that delegatedBy holds any authority"
+        ],
+        "establishes_authorization": false
+      },
+      "verification": {
+        "valid": true,
+        "revoked": false,
+        "expired": false,
+        "notYetValid": false,
+        "depthExceeded": false,
+        "errors": [],
+        "revocationEvidence": "absent"
+      },
+      "issuance": {
+        "function": "subDelegate",
+        "inputs": {
+          "parent": "del_vector_root",
+          "delegatedTo": "6fbf1a1923fdafe8bd87b7b76f612b67d62d80b5e926d23f7748ead96d85e57c",
+          "scope": [
+            "data:read"
+          ],
+          "spendLimit": 100,
+          "signer_key": "agent-key"
+        },
+        "checks": [
+          "parent currentDepth + 1 within parent maxDepth",
+          "every child scope covered by a parent scope (pre-draft scopeCovers rule)",
+          "derivation_rights against the parent, when the caller supplies them",
+          "child spend unit equal to the parent unit",
+          "child spendLimit within the parent remaining budget",
+          "parent expiresAt after the clock",
+          "verifyDelegation on the parent"
+        ],
+        "accepted": true,
+        "error": null
+      }
+    },
+    {
+      "name": "delegation-expired",
+      "description": "Same as the root with expiresAt 2026-10-02T00:00:00.000Z, re-signed by the principal. Signature valid, record expired at the verification instant.",
+      "record": {
+        "delegationId": "del_vector_expired",
+        "delegatedTo": "cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06",
+        "delegatedBy": "e5bce9bdc3f0b75305f6066f2869412f779b34834d43ba110ee110d9676c6068",
+        "scope": [
+          "commerce:checkout",
+          "data:read"
+        ],
+        "expiresAt": "2026-10-02T00:00:00.000Z",
+        "spendLimit": 500,
+        "spentAmount": 0,
+        "maxDepth": 1,
+        "currentDepth": 0,
+        "createdAt": "2026-10-01T00:00:00.000Z",
+        "notBefore": "2026-10-01T00:00:00.000Z",
+        "signature": "331ccea62072b3da79e15b7c2d1417c06446e9ac56fa8fa097c6be465560c54c313fc754a93a7f494105b9c4b93765b738a3e161e5ad7a184c383a5f04801906"
+      },
+      "verification_scope": {
+        "function": "verifyDelegation",
+        "nature": "Static description of the function at the pinned commit. Not a trace of the checks reached by this call: a refusal can happen before later listed checks run.",
+        "checks": [
+          "Ed25519 signature under delegatedBy over the canonical record without signature",
+          "expiresAt against the verification instant (expired only when expiresAt < instant)",
+          "notBefore against the verification instant (not yet valid only when notBefore > instant)",
+          "currentDepth > maxDepth, only when maxDepth is present",
+          "revocation evidence when the caller supplies it (none is supplied in this family, and the default policy is fail_open)"
+        ],
+        "not_checked": [
+          "the parent delegation",
+          "scope, spend and depth against the parent",
+          "that delegatedBy holds any authority"
+        ],
+        "establishes_authorization": false
+      },
+      "verification": {
+        "valid": false,
+        "revoked": false,
+        "expired": true,
+        "notYetValid": false,
+        "depthExceeded": false,
+        "errors": [
+          "Delegation expired"
+        ],
+        "revocationEvidence": "absent"
+      }
+    },
+    {
+      "name": "delegation-expires-at-verification-instant",
+      "description": "Same as the root with expiresAt equal to the verification instant (2026-10-10T12:00:00.000Z), re-signed by the principal.",
+      "record": {
+        "delegationId": "del_vector_expires_at_instant",
+        "delegatedTo": "cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06",
+        "delegatedBy": "e5bce9bdc3f0b75305f6066f2869412f779b34834d43ba110ee110d9676c6068",
+        "scope": [
+          "commerce:checkout",
+          "data:read"
+        ],
+        "expiresAt": "2026-10-10T12:00:00.000Z",
+        "spendLimit": 500,
+        "spentAmount": 0,
+        "maxDepth": 1,
+        "currentDepth": 0,
+        "createdAt": "2026-10-01T00:00:00.000Z",
+        "notBefore": "2026-10-01T00:00:00.000Z",
+        "signature": "74217801b8d4f3dfa39c6ed8de2fdfea8bda95697d5fb293d237537174840cae42203a3dd8d73d28afd6e41f7ffdcc39b081832265a4afe04df2549bbd527c0d"
+      },
+      "verification_scope": {
+        "function": "verifyDelegation",
+        "nature": "Static description of the function at the pinned commit. Not a trace of the checks reached by this call: a refusal can happen before later listed checks run.",
+        "checks": [
+          "Ed25519 signature under delegatedBy over the canonical record without signature",
+          "expiresAt against the verification instant (expired only when expiresAt < instant)",
+          "notBefore against the verification instant (not yet valid only when notBefore > instant)",
+          "currentDepth > maxDepth, only when maxDepth is present",
+          "revocation evidence when the caller supplies it (none is supplied in this family, and the default policy is fail_open)"
+        ],
+        "not_checked": [
+          "the parent delegation",
+          "scope, spend and depth against the parent",
+          "that delegatedBy holds any authority"
+        ],
+        "establishes_authorization": false
+      },
+      "verification": {
+        "valid": true,
+        "revoked": false,
+        "expired": false,
+        "notYetValid": false,
+        "depthExceeded": false,
+        "errors": [],
+        "revocationEvidence": "absent"
+      },
+      "sdk_observation": "verifyDelegation reports a record as expired only when expiresAt < the verification instant, so the instant itself is still inside the window. Recorded as the SDK output at the pinned commit. The passport 2.0 interval in draft-04 section 3.1 is exclusive at expires_at."
+    },
+    {
+      "name": "delegation-not-yet-valid",
+      "description": "Same as the root with notBefore one millisecond after the verification instant (2026-10-10T12:00:00.001Z), re-signed by the principal.",
+      "record": {
+        "delegationId": "del_vector_not_yet_valid",
+        "delegatedTo": "cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06",
+        "delegatedBy": "e5bce9bdc3f0b75305f6066f2869412f779b34834d43ba110ee110d9676c6068",
+        "scope": [
+          "commerce:checkout",
+          "data:read"
+        ],
+        "expiresAt": "2027-10-01T00:00:00.000Z",
+        "spendLimit": 500,
+        "spentAmount": 0,
+        "maxDepth": 1,
+        "currentDepth": 0,
+        "createdAt": "2026-10-01T00:00:00.000Z",
+        "notBefore": "2026-10-10T12:00:00.001Z",
+        "signature": "d13c2d657c04ad974d66929e8022e9702651f6c859b850599b789446f05b5aec9a341acb6792d7da5801d035f5ca149f2deff28d41b4451cc109cdd4226ca809"
+      },
+      "verification_scope": {
+        "function": "verifyDelegation",
+        "nature": "Static description of the function at the pinned commit. Not a trace of the checks reached by this call: a refusal can happen before later listed checks run.",
+        "checks": [
+          "Ed25519 signature under delegatedBy over the canonical record without signature",
+          "expiresAt against the verification instant (expired only when expiresAt < instant)",
+          "notBefore against the verification instant (not yet valid only when notBefore > instant)",
+          "currentDepth > maxDepth, only when maxDepth is present",
+          "revocation evidence when the caller supplies it (none is supplied in this family, and the default policy is fail_open)"
+        ],
+        "not_checked": [
+          "the parent delegation",
+          "scope, spend and depth against the parent",
+          "that delegatedBy holds any authority"
+        ],
+        "establishes_authorization": false
+      },
+      "verification": {
+        "valid": false,
+        "revoked": false,
+        "expired": false,
+        "notYetValid": true,
+        "depthExceeded": false,
+        "errors": [
+          "Delegation not yet valid (notBefore: 2026-10-10T12:00:00.001Z)"
+        ],
+        "revocationEvidence": "absent"
+      }
+    },
+    {
+      "name": "delegation-not-before-at-verification-instant",
+      "description": "Same as the root with notBefore equal to the verification instant, re-signed by the principal. verifyDelegation reports not yet valid only when notBefore > the instant.",
+      "record": {
+        "delegationId": "del_vector_not_before_at_instant",
+        "delegatedTo": "cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06",
+        "delegatedBy": "e5bce9bdc3f0b75305f6066f2869412f779b34834d43ba110ee110d9676c6068",
+        "scope": [
+          "commerce:checkout",
+          "data:read"
+        ],
+        "expiresAt": "2027-10-01T00:00:00.000Z",
+        "spendLimit": 500,
+        "spentAmount": 0,
+        "maxDepth": 1,
+        "currentDepth": 0,
+        "createdAt": "2026-10-01T00:00:00.000Z",
+        "notBefore": "2026-10-10T12:00:00.000Z",
+        "signature": "032daf21160edda7d6b8cebd33a5ccb75b5fbe2ad8ab1155f6f5eac85eea46176abc366df6dd272239df44fd5f4a32a4e15505848c6630b03986692c8018c501"
+      },
+      "verification_scope": {
+        "function": "verifyDelegation",
+        "nature": "Static description of the function at the pinned commit. Not a trace of the checks reached by this call: a refusal can happen before later listed checks run.",
+        "checks": [
+          "Ed25519 signature under delegatedBy over the canonical record without signature",
+          "expiresAt against the verification instant (expired only when expiresAt < instant)",
+          "notBefore against the verification instant (not yet valid only when notBefore > instant)",
+          "currentDepth > maxDepth, only when maxDepth is present",
+          "revocation evidence when the caller supplies it (none is supplied in this family, and the default policy is fail_open)"
+        ],
+        "not_checked": [
+          "the parent delegation",
+          "scope, spend and depth against the parent",
+          "that delegatedBy holds any authority"
+        ],
+        "establishes_authorization": false
+      },
+      "verification": {
+        "valid": true,
+        "revoked": false,
+        "expired": false,
+        "notYetValid": false,
+        "depthExceeded": false,
+        "errors": [],
+        "revocationEvidence": "absent"
+      }
+    },
+    {
+      "name": "delegation-signed-by-other-key",
+      "description": "Body identical to the root, signed with other-key. delegatedBy still names the principal, so the signature check fails. subDelegate from it is refused because the parent does not verify.",
+      "record": {
+        "delegationId": "del_vector_other_signer",
+        "delegatedTo": "cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06",
+        "delegatedBy": "e5bce9bdc3f0b75305f6066f2869412f779b34834d43ba110ee110d9676c6068",
+        "scope": [
+          "commerce:checkout",
+          "data:read"
+        ],
+        "expiresAt": "2027-10-01T00:00:00.000Z",
+        "spendLimit": 500,
+        "spentAmount": 0,
+        "maxDepth": 1,
+        "currentDepth": 0,
+        "createdAt": "2026-10-01T00:00:00.000Z",
+        "notBefore": "2026-10-01T00:00:00.000Z",
+        "signature": "c7bbc163cb258d7392a01be5568b0875ff34d056d5228f0dc1c4692cd60e896b340ce9929a586bb6d4226ecfd6d8d734edeb71c12c12319df9dfdb6a13955505"
+      },
+      "verification_scope": {
+        "function": "verifyDelegation",
+        "nature": "Static description of the function at the pinned commit. Not a trace of the checks reached by this call: a refusal can happen before later listed checks run.",
+        "checks": [
+          "Ed25519 signature under delegatedBy over the canonical record without signature",
+          "expiresAt against the verification instant (expired only when expiresAt < instant)",
+          "notBefore against the verification instant (not yet valid only when notBefore > instant)",
+          "currentDepth > maxDepth, only when maxDepth is present",
+          "revocation evidence when the caller supplies it (none is supplied in this family, and the default policy is fail_open)"
+        ],
+        "not_checked": [
+          "the parent delegation",
+          "scope, spend and depth against the parent",
+          "that delegatedBy holds any authority"
+        ],
+        "establishes_authorization": false
+      },
+      "verification": {
+        "valid": false,
+        "revoked": false,
+        "expired": false,
+        "notYetValid": false,
+        "depthExceeded": false,
+        "errors": [
+          "Invalid delegation signature"
+        ],
+        "revocationEvidence": "absent"
+      },
+      "issuance": {
+        "function": "subDelegate",
+        "inputs": {
+          "parent": "del_vector_other_signer",
+          "delegatedTo": "6fbf1a1923fdafe8bd87b7b76f612b67d62d80b5e926d23f7748ead96d85e57c",
+          "scope": [
+            "data:read"
+          ],
+          "spendLimit": 100,
+          "signer_key": "agent-key"
+        },
+        "checks": [
+          "parent currentDepth + 1 within parent maxDepth",
+          "every child scope covered by a parent scope (pre-draft scopeCovers rule)",
+          "derivation_rights against the parent, when the caller supplies them",
+          "child spend unit equal to the parent unit",
+          "child spendLimit within the parent remaining budget",
+          "parent expiresAt after the clock",
+          "verifyDelegation on the parent"
+        ],
+        "accepted": false,
+        "error": "cannot sub-delegate from an invalid parent: Invalid delegation signature"
+      }
+    },
+    {
+      "name": "delegation-depth-exceeded",
+      "description": "The child with currentDepth 2 and maxDepth 1, re-signed by the agent. verifyDelegation reports depthExceeded.",
+      "record": {
+        "delegationId": "del_vector_depth2",
+        "delegatedTo": "6fbf1a1923fdafe8bd87b7b76f612b67d62d80b5e926d23f7748ead96d85e57c",
+        "delegatedBy": "cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06",
+        "scope": [
+          "data:read"
+        ],
+        "expiresAt": "2027-10-01T00:00:00.000Z",
+        "spendLimit": 100,
+        "spentAmount": 0,
+        "spendLimitUnit": "currency",
+        "maxDepth": 1,
+        "currentDepth": 2,
+        "createdAt": "2026-10-01T00:00:00.000Z",
+        "notBefore": "2026-10-01T00:00:00.000Z",
+        "signature": "bfe6e36853d951116f685a0662c127dadaa9cd6bb394de912e49ceb4a8aa03c8bf80ef2577c9cade6d8ad08c20de7b45a44c8d5224f29252e4b8a155db2ac808"
+      },
+      "verification_scope": {
+        "function": "verifyDelegation",
+        "nature": "Static description of the function at the pinned commit. Not a trace of the checks reached by this call: a refusal can happen before later listed checks run.",
+        "checks": [
+          "Ed25519 signature under delegatedBy over the canonical record without signature",
+          "expiresAt against the verification instant (expired only when expiresAt < instant)",
+          "notBefore against the verification instant (not yet valid only when notBefore > instant)",
+          "currentDepth > maxDepth, only when maxDepth is present",
+          "revocation evidence when the caller supplies it (none is supplied in this family, and the default policy is fail_open)"
+        ],
+        "not_checked": [
+          "the parent delegation",
+          "scope, spend and depth against the parent",
+          "that delegatedBy holds any authority"
+        ],
+        "establishes_authorization": false
+      },
+      "verification": {
+        "valid": false,
+        "revoked": false,
+        "expired": false,
+        "notYetValid": false,
+        "depthExceeded": true,
+        "errors": [
+          "Depth limit exceeded"
+        ],
+        "revocationEvidence": "absent"
+      }
+    },
+    {
+      "name": "delegation-grandchild-beyond-depth",
+      "description": "subagent -> other-key under the child, currentDepth 2, maxDepth 1, signed by the subagent. verifyDelegation reports depthExceeded. subDelegate from the child refuses to mint it because the child is already at its depth limit.",
+      "record": {
+        "delegationId": "del_vector_grandchild",
+        "delegatedTo": "c9357594e04369a0786a0592da098e27de16256cf541690e97540e026cfab075",
+        "delegatedBy": "6fbf1a1923fdafe8bd87b7b76f612b67d62d80b5e926d23f7748ead96d85e57c",
+        "scope": [
+          "data:read"
+        ],
+        "expiresAt": "2027-10-01T00:00:00.000Z",
+        "spendLimit": 50,
+        "spentAmount": 0,
+        "spendLimitUnit": "currency",
+        "maxDepth": 1,
+        "currentDepth": 2,
+        "createdAt": "2026-10-01T00:00:00.000Z",
+        "notBefore": "2026-10-01T00:00:00.000Z",
+        "signature": "60185eadbf87b11674e951fc8d9ec92bde2c144774b2d070f26cb29b5ad5eec4103556f7a95d3f16d4210b3d1d71272525fa4dc9f86aafddec95f952d5426f0a"
+      },
+      "verification_scope": {
+        "function": "verifyDelegation",
+        "nature": "Static description of the function at the pinned commit. Not a trace of the checks reached by this call: a refusal can happen before later listed checks run.",
+        "checks": [
+          "Ed25519 signature under delegatedBy over the canonical record without signature",
+          "expiresAt against the verification instant (expired only when expiresAt < instant)",
+          "notBefore against the verification instant (not yet valid only when notBefore > instant)",
+          "currentDepth > maxDepth, only when maxDepth is present",
+          "revocation evidence when the caller supplies it (none is supplied in this family, and the default policy is fail_open)"
+        ],
+        "not_checked": [
+          "the parent delegation",
+          "scope, spend and depth against the parent",
+          "that delegatedBy holds any authority"
+        ],
+        "establishes_authorization": false
+      },
+      "verification": {
+        "valid": false,
+        "revoked": false,
+        "expired": false,
+        "notYetValid": false,
+        "depthExceeded": true,
+        "errors": [
+          "Depth limit exceeded"
+        ],
+        "revocationEvidence": "absent"
+      },
+      "issuance": {
+        "function": "subDelegate",
+        "inputs": {
+          "parent": "del_vector_child",
+          "delegatedTo": "c9357594e04369a0786a0592da098e27de16256cf541690e97540e026cfab075",
+          "scope": [
+            "data:read"
+          ],
+          "spendLimit": 50,
+          "signer_key": "subagent-key"
+        },
+        "checks": [
+          "parent currentDepth + 1 within parent maxDepth",
+          "every child scope covered by a parent scope (pre-draft scopeCovers rule)",
+          "derivation_rights against the parent, when the caller supplies them",
+          "child spend unit equal to the parent unit",
+          "child spendLimit within the parent remaining budget",
+          "parent expiresAt after the clock",
+          "verifyDelegation on the parent"
+        ],
+        "accepted": false,
+        "error": "Depth limit exceeded: would be depth 2, max allowed is 1"
+      }
+    },
+    {
+      "name": "delegation-scope-wider-than-parent",
+      "description": "The child with scope [data:read, admin:*], re-signed by the agent. verifyDelegation accepts the record on its own because it does not consult the parent. subDelegate refuses to mint it. This valid result is the function's result, not an authorization result.",
+      "record": {
+        "delegationId": "del_vector_widened",
+        "delegatedTo": "6fbf1a1923fdafe8bd87b7b76f612b67d62d80b5e926d23f7748ead96d85e57c",
+        "delegatedBy": "cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06",
+        "scope": [
+          "data:read",
+          "admin:*"
+        ],
+        "expiresAt": "2027-10-01T00:00:00.000Z",
+        "spendLimit": 100,
+        "spentAmount": 0,
+        "spendLimitUnit": "currency",
+        "maxDepth": 1,
+        "currentDepth": 1,
+        "createdAt": "2026-10-01T00:00:00.000Z",
+        "notBefore": "2026-10-01T00:00:00.000Z",
+        "signature": "abaadea36b304f2ba9754abef0b928c83fdbade5cbd1686a01ec8cb4df373a1a5620b3877076f6a161b2b2b818cad1c8d42be61833ea475fa48f003e1a352708"
+      },
+      "verification_scope": {
+        "function": "verifyDelegation",
+        "nature": "Static description of the function at the pinned commit. Not a trace of the checks reached by this call: a refusal can happen before later listed checks run.",
+        "checks": [
+          "Ed25519 signature under delegatedBy over the canonical record without signature",
+          "expiresAt against the verification instant (expired only when expiresAt < instant)",
+          "notBefore against the verification instant (not yet valid only when notBefore > instant)",
+          "currentDepth > maxDepth, only when maxDepth is present",
+          "revocation evidence when the caller supplies it (none is supplied in this family, and the default policy is fail_open)"
+        ],
+        "not_checked": [
+          "the parent delegation",
+          "scope, spend and depth against the parent",
+          "that delegatedBy holds any authority"
+        ],
+        "establishes_authorization": false
+      },
+      "verification": {
+        "valid": true,
+        "revoked": false,
+        "expired": false,
+        "notYetValid": false,
+        "depthExceeded": false,
+        "errors": [],
+        "revocationEvidence": "absent"
+      },
+      "issuance": {
+        "function": "subDelegate",
+        "inputs": {
+          "parent": "del_vector_root",
+          "delegatedTo": "6fbf1a1923fdafe8bd87b7b76f612b67d62d80b5e926d23f7748ead96d85e57c",
+          "scope": [
+            "data:read",
+            "admin:*"
+          ],
+          "spendLimit": 100,
+          "signer_key": "agent-key"
+        },
+        "checks": [
+          "parent currentDepth + 1 within parent maxDepth",
+          "every child scope covered by a parent scope (pre-draft scopeCovers rule)",
+          "derivation_rights against the parent, when the caller supplies them",
+          "child spend unit equal to the parent unit",
+          "child spendLimit within the parent remaining budget",
+          "parent expiresAt after the clock",
+          "verifyDelegation on the parent"
+        ],
+        "accepted": false,
+        "error": "Scope violation: [admin:*] not in parent scope [commerce:checkout,data:read]"
+      }
+    },
+    {
+      "name": "delegation-spend-wider-than-parent",
+      "description": "The child with spendLimit 900 against a parent of 500, re-signed by the agent. verifyDelegation accepts the record on its own, subDelegate refuses. This valid result is the function's result, not an authorization result.",
+      "record": {
+        "delegationId": "del_vector_overbudget",
+        "delegatedTo": "6fbf1a1923fdafe8bd87b7b76f612b67d62d80b5e926d23f7748ead96d85e57c",
+        "delegatedBy": "cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06",
+        "scope": [
+          "data:read"
+        ],
+        "expiresAt": "2027-10-01T00:00:00.000Z",
+        "spendLimit": 900,
+        "spentAmount": 0,
+        "spendLimitUnit": "currency",
+        "maxDepth": 1,
+        "currentDepth": 1,
+        "createdAt": "2026-10-01T00:00:00.000Z",
+        "notBefore": "2026-10-01T00:00:00.000Z",
+        "signature": "982bdfe708c547877c40f7199b4a6547bf01769c4941b90f669b770b42cfcd2d3397f513cb7a0bdb5ded7dfce0fed228134936d7a5b675807cdf07bc73bb1e02"
+      },
+      "verification_scope": {
+        "function": "verifyDelegation",
+        "nature": "Static description of the function at the pinned commit. Not a trace of the checks reached by this call: a refusal can happen before later listed checks run.",
+        "checks": [
+          "Ed25519 signature under delegatedBy over the canonical record without signature",
+          "expiresAt against the verification instant (expired only when expiresAt < instant)",
+          "notBefore against the verification instant (not yet valid only when notBefore > instant)",
+          "currentDepth > maxDepth, only when maxDepth is present",
+          "revocation evidence when the caller supplies it (none is supplied in this family, and the default policy is fail_open)"
+        ],
+        "not_checked": [
+          "the parent delegation",
+          "scope, spend and depth against the parent",
+          "that delegatedBy holds any authority"
+        ],
+        "establishes_authorization": false
+      },
+      "verification": {
+        "valid": true,
+        "revoked": false,
+        "expired": false,
+        "notYetValid": false,
+        "depthExceeded": false,
+        "errors": [],
+        "revocationEvidence": "absent"
+      },
+      "issuance": {
+        "function": "subDelegate",
+        "inputs": {
+          "parent": "del_vector_root",
+          "delegatedTo": "6fbf1a1923fdafe8bd87b7b76f612b67d62d80b5e926d23f7748ead96d85e57c",
+          "scope": [
+            "data:read"
+          ],
+          "spendLimit": 900,
+          "signer_key": "agent-key"
+        },
+        "checks": [
+          "parent currentDepth + 1 within parent maxDepth",
+          "every child scope covered by a parent scope (pre-draft scopeCovers rule)",
+          "derivation_rights against the parent, when the caller supplies them",
+          "child spend unit equal to the parent unit",
+          "child spendLimit within the parent remaining budget",
+          "parent expiresAt after the clock",
+          "verifyDelegation on the parent"
+        ],
+        "accepted": false,
+        "error": "Spend limit 900 exceeds parent remaining 500"
+      }
+    },
+    {
+      "name": "delegation-without-max-depth-at-depth-64",
+      "description": "A record signed without maxDepth, at currentDepth 64. verifyDelegation applies no depth ceiling when maxDepth is absent. createDelegation writes maxDepth 1 when its caller omits the field (checked at generation and in the test), so the writer default and the reader behaviour differ. This valid result is the function's result, not an authorization result.",
+      "record": {
+        "delegationId": "del_vector_no_max_depth",
+        "delegatedTo": "6fbf1a1923fdafe8bd87b7b76f612b67d62d80b5e926d23f7748ead96d85e57c",
+        "delegatedBy": "cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06",
+        "scope": [
+          "data:read"
+        ],
+        "expiresAt": "2027-10-01T00:00:00.000Z",
+        "currentDepth": 64,
+        "createdAt": "2026-10-01T00:00:00.000Z",
+        "notBefore": "2026-10-01T00:00:00.000Z",
+        "signature": "9933a2de5fa1a38813d0dc0365ab2d29dba48033e097f5ed00b9e5f8bb4cc4efc6af9990d85c71357fab16234c6b4de7ca33f6a66b46bc3743946b1bb846d900"
+      },
+      "verification_scope": {
+        "function": "verifyDelegation",
+        "nature": "Static description of the function at the pinned commit. Not a trace of the checks reached by this call: a refusal can happen before later listed checks run.",
+        "checks": [
+          "Ed25519 signature under delegatedBy over the canonical record without signature",
+          "expiresAt against the verification instant (expired only when expiresAt < instant)",
+          "notBefore against the verification instant (not yet valid only when notBefore > instant)",
+          "currentDepth > maxDepth, only when maxDepth is present",
+          "revocation evidence when the caller supplies it (none is supplied in this family, and the default policy is fail_open)"
+        ],
+        "not_checked": [
+          "the parent delegation",
+          "scope, spend and depth against the parent",
+          "that delegatedBy holds any authority"
+        ],
+        "establishes_authorization": false
+      },
+      "verification": {
+        "valid": true,
+        "revoked": false,
+        "expired": false,
+        "notYetValid": false,
+        "depthExceeded": false,
+        "errors": [],
+        "revocationEvidence": "absent"
+      }
+    }
+  ],
+  "receipt_cases": [
+    {
+      "name": "valid-receipt-under-root",
+      "description": "Agent executes commerce:checkout for 120 USD under the root delegation and signs the receipt. verifyReceipt with the agent key. createReceipt accepts the same inputs, and the receipt it returns carries the same members, names and input values as this record.",
+      "record": {
+        "receiptId": "rcpt_vector_0001",
+        "version": "1.1",
+        "timestamp": "2026-10-10T11:00:00.000Z",
+        "agentId": "cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06",
+        "delegationId": "del_vector_root",
+        "action": {
+          "type": "api_call",
+          "target": "shop.example",
+          "method": "POST /checkout",
+          "scopeUsed": "commerce:checkout",
+          "spend": {
+            "amount": 120,
+            "currency": "USD"
+          }
+        },
+        "result": {
+          "status": "success",
+          "summary": "order placed"
+        },
+        "delegationChain": [
+          "e5bce9bdc3f0b75305f6066f2869412f779b34834d43ba110ee110d9676c6068",
+          "cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06"
+        ],
+        "signature": "658ddedb31bd78a8c6b478b6100f931cae1c1d81bd39131e8d9f2bb8f06196bd7d0a00d6b501d1675abc6ee10f4bff8f930e6b3371c53c493df76e45c29d6b0c"
+      },
+      "verify_with_key": "agent-key",
+      "verification_scope": {
+        "function": "verifyReceipt",
+        "nature": "Static description of the function at the pinned commit. Not a trace of the checks reached by this call: a refusal can happen before later listed checks run.",
+        "checks": [
+          "Ed25519 signature under the supplied agent key over the canonical receipt without signature",
+          "version equals \"1.1\""
+        ],
+        "not_checked": [
+          "the delegation named by delegationId",
+          "delegationChain",
+          "action.scopeUsed against any delegation scope",
+          "action.spend against any budget",
+          "revocation"
+        ],
+        "establishes_authorization": false
+      },
+      "verification": {
+        "valid": true,
+        "errors": []
+      },
+      "issuance": {
+        "function": "createReceipt",
+        "inputs": {
+          "delegation": "del_vector_root",
+          "agentId": "cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06",
+          "action": {
+            "type": "api_call",
+            "target": "shop.example",
+            "method": "POST /checkout",
+            "scopeUsed": "commerce:checkout",
+            "spend": {
+              "amount": 120,
+              "currency": "USD"
+            }
+          },
+          "result": {
+            "status": "success",
+            "summary": "order placed"
+          },
+          "delegationChain": [
+            "e5bce9bdc3f0b75305f6066f2869412f779b34834d43ba110ee110d9676c6068",
+            "cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06"
+          ],
+          "signer_key": "agent-key"
+        },
+        "checks": [
+          "verifyDelegation on the supplied delegation",
+          "action.scopeUsed covered by that delegation scope",
+          "action.spend within that delegation remaining budget"
+        ],
+        "not_checked": [
+          "delegationChain, which is copied into the receipt as supplied"
+        ],
+        "accepted": true,
+        "error": null,
+        "output_compared": "members and names equal to the case record, values equal for version, agentId, delegationId, action, result, delegationChain"
+      }
+    },
+    {
+      "name": "valid-receipt-under-child",
+      "description": "Subagent executes data:read under the child delegation. Three-entry delegationChain.",
+      "record": {
+        "receiptId": "rcpt_vector_0002",
+        "version": "1.1",
+        "timestamp": "2026-10-10T11:00:00.000Z",
+        "agentId": "6fbf1a1923fdafe8bd87b7b76f612b67d62d80b5e926d23f7748ead96d85e57c",
+        "delegationId": "del_vector_child",
+        "action": {
+          "type": "api_call",
+          "target": "db.example",
+          "scopeUsed": "data:read"
+        },
+        "result": {
+          "status": "success",
+          "summary": "rows read"
+        },
+        "delegationChain": [
+          "e5bce9bdc3f0b75305f6066f2869412f779b34834d43ba110ee110d9676c6068",
+          "cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06",
+          "6fbf1a1923fdafe8bd87b7b76f612b67d62d80b5e926d23f7748ead96d85e57c"
+        ],
+        "signature": "14ebf184e068bf8fc49d9d453fcf15cd65af862835368ad84543ba21b768526e85785b3957bf2fb94389b1bd3cae28a1b809dbc0bdff1b03084f907aaae42c00"
+      },
+      "verify_with_key": "subagent-key",
+      "verification_scope": {
+        "function": "verifyReceipt",
+        "nature": "Static description of the function at the pinned commit. Not a trace of the checks reached by this call: a refusal can happen before later listed checks run.",
+        "checks": [
+          "Ed25519 signature under the supplied agent key over the canonical receipt without signature",
+          "version equals \"1.1\""
+        ],
+        "not_checked": [
+          "the delegation named by delegationId",
+          "delegationChain",
+          "action.scopeUsed against any delegation scope",
+          "action.spend against any budget",
+          "revocation"
+        ],
+        "establishes_authorization": false
+      },
+      "verification": {
+        "valid": true,
+        "errors": []
+      }
+    },
+    {
+      "name": "receipt-tampered-spend",
+      "description": "action.spend.amount changed from 120 to 12000 after signing. The signature no longer covers the bytes.",
+      "record": {
+        "receiptId": "rcpt_vector_0001",
+        "version": "1.1",
+        "timestamp": "2026-10-10T11:00:00.000Z",
+        "agentId": "cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06",
+        "delegationId": "del_vector_root",
+        "action": {
+          "type": "api_call",
+          "target": "shop.example",
+          "method": "POST /checkout",
+          "scopeUsed": "commerce:checkout",
+          "spend": {
+            "amount": 12000,
+            "currency": "USD"
+          }
+        },
+        "result": {
+          "status": "success",
+          "summary": "order placed"
+        },
+        "delegationChain": [
+          "e5bce9bdc3f0b75305f6066f2869412f779b34834d43ba110ee110d9676c6068",
+          "cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06"
+        ],
+        "signature": "658ddedb31bd78a8c6b478b6100f931cae1c1d81bd39131e8d9f2bb8f06196bd7d0a00d6b501d1675abc6ee10f4bff8f930e6b3371c53c493df76e45c29d6b0c"
+      },
+      "verify_with_key": "agent-key",
+      "verification_scope": {
+        "function": "verifyReceipt",
+        "nature": "Static description of the function at the pinned commit. Not a trace of the checks reached by this call: a refusal can happen before later listed checks run.",
+        "checks": [
+          "Ed25519 signature under the supplied agent key over the canonical receipt without signature",
+          "version equals \"1.1\""
+        ],
+        "not_checked": [
+          "the delegation named by delegationId",
+          "delegationChain",
+          "action.scopeUsed against any delegation scope",
+          "action.spend against any budget",
+          "revocation"
+        ],
+        "establishes_authorization": false
+      },
+      "verification": {
+        "valid": false,
+        "errors": [
+          "Invalid receipt signature"
+        ]
+      }
+    },
+    {
+      "name": "receipt-signed-by-other-key",
+      "description": "Body identical to the valid receipt, signed with other-key, verified with the agent key.",
+      "record": {
+        "receiptId": "rcpt_vector_0001",
+        "version": "1.1",
+        "timestamp": "2026-10-10T11:00:00.000Z",
+        "agentId": "cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06",
+        "delegationId": "del_vector_root",
+        "action": {
+          "type": "api_call",
+          "target": "shop.example",
+          "method": "POST /checkout",
+          "scopeUsed": "commerce:checkout",
+          "spend": {
+            "amount": 120,
+            "currency": "USD"
+          }
+        },
+        "result": {
+          "status": "success",
+          "summary": "order placed"
+        },
+        "delegationChain": [
+          "e5bce9bdc3f0b75305f6066f2869412f779b34834d43ba110ee110d9676c6068",
+          "cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06"
+        ],
+        "signature": "75f65e2927643b2e49f853ea1c3dcf265562c22c44ad99187511b35a5c2159cb4eb2af6dbb426f894fa12a3f16d0305f4071456e2465870cac8816e2d149e207"
+      },
+      "verify_with_key": "agent-key",
+      "verification_scope": {
+        "function": "verifyReceipt",
+        "nature": "Static description of the function at the pinned commit. Not a trace of the checks reached by this call: a refusal can happen before later listed checks run.",
+        "checks": [
+          "Ed25519 signature under the supplied agent key over the canonical receipt without signature",
+          "version equals \"1.1\""
+        ],
+        "not_checked": [
+          "the delegation named by delegationId",
+          "delegationChain",
+          "action.scopeUsed against any delegation scope",
+          "action.spend against any budget",
+          "revocation"
+        ],
+        "establishes_authorization": false
+      },
+      "verification": {
+        "valid": false,
+        "errors": [
+          "Invalid receipt signature"
+        ]
+      }
+    },
+    {
+      "name": "receipt-version-1.0",
+      "description": "version 1.0, re-signed by the agent, so the signature is valid and only the version gate fails.",
+      "record": {
+        "receiptId": "rcpt_vector_0005",
+        "version": "1.0",
+        "timestamp": "2026-10-10T11:00:00.000Z",
+        "agentId": "cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06",
+        "delegationId": "del_vector_root",
+        "action": {
+          "type": "api_call",
+          "target": "shop.example",
+          "method": "POST /checkout",
+          "scopeUsed": "commerce:checkout",
+          "spend": {
+            "amount": 120,
+            "currency": "USD"
+          }
+        },
+        "result": {
+          "status": "success",
+          "summary": "order placed"
+        },
+        "delegationChain": [
+          "e5bce9bdc3f0b75305f6066f2869412f779b34834d43ba110ee110d9676c6068",
+          "cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06"
+        ],
+        "signature": "326f5d31aadc10ad2c05795fa0d9d9b23089a6953f0b8a58689741d294427c7fe66ec2d04c5791ff34781b1848e706c3b98b076c44a81181752f9cd27478970a"
+      },
+      "verify_with_key": "agent-key",
+      "verification_scope": {
+        "function": "verifyReceipt",
+        "nature": "Static description of the function at the pinned commit. Not a trace of the checks reached by this call: a refusal can happen before later listed checks run.",
+        "checks": [
+          "Ed25519 signature under the supplied agent key over the canonical receipt without signature",
+          "version equals \"1.1\""
+        ],
+        "not_checked": [
+          "the delegation named by delegationId",
+          "delegationChain",
+          "action.scopeUsed against any delegation scope",
+          "action.spend against any budget",
+          "revocation"
+        ],
+        "establishes_authorization": false
+      },
+      "verification": {
+        "valid": false,
+        "errors": [
+          "Unsupported receipt version"
+        ]
+      }
+    },
+    {
+      "name": "receipt-snake-case-spelling",
+      "description": "The valid receipt re-spelled with the member names of the docs/SPEC-v1.1.md section 1.1 example (receipt_id, agent_id, delegation_id, scope_used, delegation_chain), with the signature minted over the camelCase record kept. Member names are inside the canonical bytes, so renaming them without re-signing invalidates the signature. verifyReceipt checks signature and version, not member names, so this case does not show that snake_case is rejected as such. The camelCase names are pinned by the createReceipt output comparison on valid-receipt-under-root.",
+      "record": {
+        "receipt_id": "rcpt_vector_0001",
+        "version": "1.1",
+        "timestamp": "2026-10-10T11:00:00.000Z",
+        "agent_id": "cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06",
+        "delegation_id": "del_vector_root",
+        "action": {
+          "type": "api_call",
+          "target": "shop.example",
+          "method": "POST /checkout",
+          "scope_used": "commerce:checkout",
+          "spend": {
+            "amount": 120,
+            "currency": "USD"
+          }
+        },
+        "result": {
+          "status": "success",
+          "summary": "order placed"
+        },
+        "delegation_chain": [
+          "e5bce9bdc3f0b75305f6066f2869412f779b34834d43ba110ee110d9676c6068",
+          "cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06"
+        ],
+        "signature": "658ddedb31bd78a8c6b478b6100f931cae1c1d81bd39131e8d9f2bb8f06196bd7d0a00d6b501d1675abc6ee10f4bff8f930e6b3371c53c493df76e45c29d6b0c"
+      },
+      "verify_with_key": "agent-key",
+      "verification_scope": {
+        "function": "verifyReceipt",
+        "nature": "Static description of the function at the pinned commit. Not a trace of the checks reached by this call: a refusal can happen before later listed checks run.",
+        "checks": [
+          "Ed25519 signature under the supplied agent key over the canonical receipt without signature",
+          "version equals \"1.1\""
+        ],
+        "not_checked": [
+          "the delegation named by delegationId",
+          "delegationChain",
+          "action.scopeUsed against any delegation scope",
+          "action.spend against any budget",
+          "revocation"
+        ],
+        "establishes_authorization": false
+      },
+      "verification": {
+        "valid": false,
+        "errors": [
+          "Invalid receipt signature"
+        ]
+      }
+    },
+    {
+      "name": "receipt-scope-not-delegated",
+      "description": "A receipt for admin:delete under the root, signed by the agent. verifyReceipt returns valid because it checks signature and version only. createReceipt refuses to mint it. This valid result is the function's result, not an authorization result.",
+      "record": {
+        "receiptId": "rcpt_vector_0003",
+        "version": "1.1",
+        "timestamp": "2026-10-10T11:00:00.000Z",
+        "agentId": "cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06",
+        "delegationId": "del_vector_root",
+        "action": {
+          "type": "api_call",
+          "target": "shop.example",
+          "scopeUsed": "admin:delete"
+        },
+        "result": {
+          "status": "success",
+          "summary": "order placed"
+        },
+        "delegationChain": [
+          "e5bce9bdc3f0b75305f6066f2869412f779b34834d43ba110ee110d9676c6068",
+          "cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06"
+        ],
+        "signature": "94188297312658e539a527315d672f39f14cd46422e7a8b3ea97fad4848d7473228ee52a34c79421694066a7906a1e58af4ddd8728868e78830f606727f1e800"
+      },
+      "verify_with_key": "agent-key",
+      "verification_scope": {
+        "function": "verifyReceipt",
+        "nature": "Static description of the function at the pinned commit. Not a trace of the checks reached by this call: a refusal can happen before later listed checks run.",
+        "checks": [
+          "Ed25519 signature under the supplied agent key over the canonical receipt without signature",
+          "version equals \"1.1\""
+        ],
+        "not_checked": [
+          "the delegation named by delegationId",
+          "delegationChain",
+          "action.scopeUsed against any delegation scope",
+          "action.spend against any budget",
+          "revocation"
+        ],
+        "establishes_authorization": false
+      },
+      "verification": {
+        "valid": true,
+        "errors": []
+      },
+      "issuance": {
+        "function": "createReceipt",
+        "inputs": {
+          "delegation": "del_vector_root",
+          "agentId": "cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06",
+          "action": {
+            "type": "api_call",
+            "target": "shop.example",
+            "scopeUsed": "admin:delete"
+          },
+          "result": {
+            "status": "success",
+            "summary": "order placed"
+          },
+          "delegationChain": [
+            "e5bce9bdc3f0b75305f6066f2869412f779b34834d43ba110ee110d9676c6068",
+            "cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06"
+          ],
+          "signer_key": "agent-key"
+        },
+        "checks": [
+          "verifyDelegation on the supplied delegation",
+          "action.scopeUsed covered by that delegation scope",
+          "action.spend within that delegation remaining budget"
+        ],
+        "not_checked": [
+          "delegationChain, which is copied into the receipt as supplied"
+        ],
+        "accepted": false,
+        "error": "Scope 'admin:delete' not in delegation [commerce:checkout,data:read]"
+      }
+    },
+    {
+      "name": "receipt-spend-over-budget",
+      "description": "A receipt spending 900 USD under a 500 USD delegation, signed by the agent. verifyReceipt returns valid, createReceipt refuses. This valid result is the function's result, not an authorization result.",
+      "record": {
+        "receiptId": "rcpt_vector_0004",
+        "version": "1.1",
+        "timestamp": "2026-10-10T11:00:00.000Z",
+        "agentId": "cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06",
+        "delegationId": "del_vector_root",
+        "action": {
+          "type": "api_call",
+          "target": "shop.example",
+          "method": "POST /checkout",
+          "scopeUsed": "commerce:checkout",
+          "spend": {
+            "amount": 900,
+            "currency": "USD"
+          }
+        },
+        "result": {
+          "status": "success",
+          "summary": "order placed"
+        },
+        "delegationChain": [
+          "e5bce9bdc3f0b75305f6066f2869412f779b34834d43ba110ee110d9676c6068",
+          "cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06"
+        ],
+        "signature": "6c385f20a4729bef6a414389f8c5ac5f8457687a937735acf5609767c39e4273934da56790efdbf18e13f175585dbd53ff84976029ab74aee14401a707ea4c0a"
+      },
+      "verify_with_key": "agent-key",
+      "verification_scope": {
+        "function": "verifyReceipt",
+        "nature": "Static description of the function at the pinned commit. Not a trace of the checks reached by this call: a refusal can happen before later listed checks run.",
+        "checks": [
+          "Ed25519 signature under the supplied agent key over the canonical receipt without signature",
+          "version equals \"1.1\""
+        ],
+        "not_checked": [
+          "the delegation named by delegationId",
+          "delegationChain",
+          "action.scopeUsed against any delegation scope",
+          "action.spend against any budget",
+          "revocation"
+        ],
+        "establishes_authorization": false
+      },
+      "verification": {
+        "valid": true,
+        "errors": []
+      },
+      "issuance": {
+        "function": "createReceipt",
+        "inputs": {
+          "delegation": "del_vector_root",
+          "agentId": "cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06",
+          "action": {
+            "type": "api_call",
+            "target": "shop.example",
+            "method": "POST /checkout",
+            "scopeUsed": "commerce:checkout",
+            "spend": {
+              "amount": 900,
+              "currency": "USD"
+            }
+          },
+          "result": {
+            "status": "success",
+            "summary": "order placed"
+          },
+          "delegationChain": [
+            "e5bce9bdc3f0b75305f6066f2869412f779b34834d43ba110ee110d9676c6068",
+            "cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06"
+          ],
+          "signer_key": "agent-key"
+        },
+        "checks": [
+          "verifyDelegation on the supplied delegation",
+          "action.scopeUsed covered by that delegation scope",
+          "action.spend within that delegation remaining budget"
+        ],
+        "not_checked": [
+          "delegationChain, which is copied into the receipt as supplied"
+        ],
+        "accepted": false,
+        "error": "Spend 900 exceeds remaining 500"
+      }
+    },
+    {
+      "name": "receipt-under-expired-delegation",
+      "description": "A receipt naming the expired delegation, signed by the agent. verifyReceipt returns valid because it does not look at the delegation. createReceipt refuses because the supplied delegation does not verify. This valid result is the function's result, not an authorization result.",
+      "record": {
+        "receiptId": "rcpt_vector_0007",
+        "version": "1.1",
+        "timestamp": "2026-10-10T11:00:00.000Z",
+        "agentId": "cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06",
+        "delegationId": "del_vector_expired",
+        "action": {
+          "type": "api_call",
+          "target": "shop.example",
+          "method": "POST /checkout",
+          "scopeUsed": "commerce:checkout",
+          "spend": {
+            "amount": 120,
+            "currency": "USD"
+          }
+        },
+        "result": {
+          "status": "success",
+          "summary": "order placed"
+        },
+        "delegationChain": [
+          "e5bce9bdc3f0b75305f6066f2869412f779b34834d43ba110ee110d9676c6068",
+          "cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06"
+        ],
+        "signature": "ddb2324df43842e0cdf9bce45a693f1e1fee721b30f34c477be06308727f95cb303c0df2c4dbb84fb75ec72c44bb487e9db1d62ab0f59e61cdf22bf1c02bb803"
+      },
+      "verify_with_key": "agent-key",
+      "verification_scope": {
+        "function": "verifyReceipt",
+        "nature": "Static description of the function at the pinned commit. Not a trace of the checks reached by this call: a refusal can happen before later listed checks run.",
+        "checks": [
+          "Ed25519 signature under the supplied agent key over the canonical receipt without signature",
+          "version equals \"1.1\""
+        ],
+        "not_checked": [
+          "the delegation named by delegationId",
+          "delegationChain",
+          "action.scopeUsed against any delegation scope",
+          "action.spend against any budget",
+          "revocation"
+        ],
+        "establishes_authorization": false
+      },
+      "verification": {
+        "valid": true,
+        "errors": []
+      },
+      "issuance": {
+        "function": "createReceipt",
+        "inputs": {
+          "delegation": "del_vector_expired",
+          "agentId": "cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06",
+          "action": {
+            "type": "api_call",
+            "target": "shop.example",
+            "method": "POST /checkout",
+            "scopeUsed": "commerce:checkout",
+            "spend": {
+              "amount": 120,
+              "currency": "USD"
+            }
+          },
+          "result": {
+            "status": "success",
+            "summary": "order placed"
+          },
+          "delegationChain": [
+            "e5bce9bdc3f0b75305f6066f2869412f779b34834d43ba110ee110d9676c6068",
+            "cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06"
+          ],
+          "signer_key": "agent-key"
+        },
+        "checks": [
+          "verifyDelegation on the supplied delegation",
+          "action.scopeUsed covered by that delegation scope",
+          "action.spend within that delegation remaining budget"
+        ],
+        "not_checked": [
+          "delegationChain, which is copied into the receipt as supplied"
+        ],
+        "accepted": false,
+        "error": "Cannot create receipt: delegation invalid — Delegation expired"
+      }
+    },
+    {
+      "name": "receipt-chain-not-validated",
+      "description": "The valid receipt with delegationChain starting at other-key, a key that delegated nothing here, re-signed by the agent. verifyReceipt returns valid. createReceipt accepts the same chain and the receipt it returns carries that chain unchanged, because neither function validates delegationChain. This valid result is the function's result, not an authorization result.",
+      "record": {
+        "receiptId": "rcpt_vector_0006",
+        "version": "1.1",
+        "timestamp": "2026-10-10T11:00:00.000Z",
+        "agentId": "cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06",
+        "delegationId": "del_vector_root",
+        "action": {
+          "type": "api_call",
+          "target": "shop.example",
+          "method": "POST /checkout",
+          "scopeUsed": "commerce:checkout",
+          "spend": {
+            "amount": 120,
+            "currency": "USD"
+          }
+        },
+        "result": {
+          "status": "success",
+          "summary": "order placed"
+        },
+        "delegationChain": [
+          "c9357594e04369a0786a0592da098e27de16256cf541690e97540e026cfab075",
+          "cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06"
+        ],
+        "signature": "f7912402d05c3fed0606dfa912f53c31ebc3a050a82998e47cd601fc6fd6563645e0ef4d608d0b8d05d7e4267ba5e4c76f7025e96af2552e71b7763bf21eb60d"
+      },
+      "verify_with_key": "agent-key",
+      "verification_scope": {
+        "function": "verifyReceipt",
+        "nature": "Static description of the function at the pinned commit. Not a trace of the checks reached by this call: a refusal can happen before later listed checks run.",
+        "checks": [
+          "Ed25519 signature under the supplied agent key over the canonical receipt without signature",
+          "version equals \"1.1\""
+        ],
+        "not_checked": [
+          "the delegation named by delegationId",
+          "delegationChain",
+          "action.scopeUsed against any delegation scope",
+          "action.spend against any budget",
+          "revocation"
+        ],
+        "establishes_authorization": false
+      },
+      "verification": {
+        "valid": true,
+        "errors": []
+      },
+      "issuance": {
+        "function": "createReceipt",
+        "inputs": {
+          "delegation": "del_vector_root",
+          "agentId": "cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06",
+          "action": {
+            "type": "api_call",
+            "target": "shop.example",
+            "method": "POST /checkout",
+            "scopeUsed": "commerce:checkout",
+            "spend": {
+              "amount": 120,
+              "currency": "USD"
+            }
+          },
+          "result": {
+            "status": "success",
+            "summary": "order placed"
+          },
+          "delegationChain": [
+            "c9357594e04369a0786a0592da098e27de16256cf541690e97540e026cfab075",
+            "cf4cb82798b8394129eb59a585348ff8b4866380c7376cc20d51c1b441fffc06"
+          ],
+          "signer_key": "agent-key"
+        },
+        "checks": [
+          "verifyDelegation on the supplied delegation",
+          "action.scopeUsed covered by that delegation scope",
+          "action.spend within that delegation remaining budget"
+        ],
+        "not_checked": [
+          "delegationChain, which is copied into the receipt as supplied"
+        ],
+        "accepted": true,
+        "error": null,
+        "output_compared": "members and names equal to the case record, values equal for version, agentId, delegationId, action, result, delegationChain"
+      }
+    }
+  ],
+  "not_covered": [
+    "Revocation. verifyDelegation takes cached revocation state as an option and the SDK holds no registry. The gateway DelegationStore does live checks. No revocation case is pinned here.",
+    "Chain verification as one operation. The legacy surface verifies records one at a time (store.validateChain lives in the gateway).",
+    "The draft path: AuthorityDelegationV1, authority revocation, receipt-core v1. Those have their own families and wire formats.",
+    "previousReceiptHash, witnessSignature, sequenceNumber and the other optional receipt members. None is set here."
+  ]
+}

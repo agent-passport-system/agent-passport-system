@@ -24,9 +24,12 @@ import {
   assertUtcMilliseconds,
   sortedUnique,
 } from './validation.js'
+import { classifyResolution } from './resolution-outcome.js'
+import { unrecognisedProfile } from './profile-recognition.js'
 
 const ID_DOMAIN = 'APS-PASSPORT-ID-V2\0'
 const SIGNATURE_DOMAIN = 'APS-PASSPORT-SIG-V2\0'
+const PROFILE = { record_type: 'aps.agent-passport', version: '2.0', code_prefix: 'PASSPORT' }
 
 export interface IssuePassportV2Input {
   public_key_hex: string
@@ -68,6 +71,8 @@ export async function verifyPassportV2(
   candidate: unknown,
   options: { now?: string; resolve_key?: HistoricalKeyResolver } = {},
 ): Promise<IdentityVerificationResult> {
+  const profile = unrecognisedProfile(candidate, PROFILE)
+  if (profile) return profile
   let passport: PassportV2
   try {
     passport = validatePassport(candidate)
@@ -110,20 +115,31 @@ export async function verifyPassportV2(
       key_authority: 'unresolved',
     }
   }
-  const resolution = await options.resolve_key({
-    controller: passport.agent_id,
-    verification_method: passport.verification_method,
-    at: passport.issued_at,
-  })
-  if (resolution.state !== 'resolved' || !resolution.public_key_hex) {
+  // A resolver that throws is treated like an answer outside the resolver contract.
+  let resolution: unknown
+  try {
+    resolution = await options.resolve_key({
+      controller: passport.agent_id,
+      verification_method: passport.verification_method,
+      at: passport.issued_at,
+    })
+  } catch {
+    resolution = undefined
+  }
+  // A resolution that produced no usable key leaves key authority unresolved: the
+  // section 3.5 outcome mapping, applied to the agent's own key (see
+  // resolution-outcome.ts). Only a resolved key that differs from the passport's key
+  // is an established key-authority failure.
+  const classified = classifyResolution(resolution)
+  if (!classified.ok) {
     return {
-      state: resolution.state === 'unreachable' ? 'indeterminate' : 'invalid',
-      code: `PASSPORT_KEY_${resolution.state.toUpperCase()}`,
+      state: classified.failure.state,
+      code: `PASSPORT_KEY_${classified.failure.outcome}`,
       proof_of_possession: true,
-      key_authority: resolution.state === 'unreachable' ? 'unresolved' : 'rejected',
+      key_authority: 'unresolved',
     }
   }
-  if (resolution.public_key_hex !== publicKey) {
+  if (classified.public_key_hex !== publicKey) {
     return {
       ...invalid('PASSPORT_KEY_AUTHORITY_REJECTED'),
       proof_of_possession: true,
