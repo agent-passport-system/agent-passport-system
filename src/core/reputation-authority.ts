@@ -131,7 +131,7 @@ export const DEFAULT_TEMPORAL_SPREAD_DAYS = 14
  *
  * Confidence is the product of five sub-scores:
  *   1. Volume: log-scaled receipt count (saturates around 100 receipts)
- *   2. Diversity of principals: more distinct principals = harder to sybil
+ *   2. Diversity of principals: distinct caller-supplied principal labels (not verified here)
  *   3. Diversity of evidence classes: not all trivial tasks
  *   4. Success/failure balance: some failures are HEALTHIER than 100% success
  *      (100% success with few interactions is suspicious)
@@ -153,7 +153,7 @@ export function computeConfidence(
   const volumeScore = Math.min(1, Math.log2(1 + rep.receiptCount) / Math.log2(101))
 
   // Principal diversity: how many distinct principals?
-  // 1 principal = 0.2 (minimum), 5+ principals = 1.0
+  // 0 labels = 0.2, 1 label = 0.4, 4 or more labels = 1.0
   const principalScore = Math.min(1, 0.2 + 0.2 * diversity.distinctPrincipals)
 
   // Evidence class diversity: how many distinct classes?
@@ -590,7 +590,10 @@ export function updateReputationFromResult(
   rep: ScopedReputation,
   success: boolean,
   evidenceClass: EvidenceClass,
-  /** Optional diversity metadata — pass to enable sybil-resistant confidence scoring */
+  /** Optional diversity metadata. principalHash is a caller-supplied label and is not verified
+   *  by this function. Distinct labels can raise confidence, up to the scoring cap, so pass
+   *  only a label your code derived from a principal it has authenticated, and do not read
+   *  confidence as evidence of independent principals: one controller can hold many keys. */
   diversityUpdate?: { principalHash?: string; taskType?: string }
 ): ScopedReputation {
   const updates = REPUTATION_UPDATES[evidenceClass]

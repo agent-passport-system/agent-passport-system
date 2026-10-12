@@ -26,12 +26,15 @@ export interface ScopedReputation {
   sigma: number            // Uncertainty (0-50, higher = less certain)
   receiptCount: number     // Total receipts in this scope
   lastUpdatedAt: string
-  /** Evidence diversity metadata — sybil resistance through diversity requirements.
-   *  High score + low diversity = low confidence = restricted effective authority. */
+  /** Evidence diversity metadata: how varied the recorded evidence is. Principal labels are
+   *  supplied by the caller and are not verified here, so diversity alone does not stop one
+   *  party from presenting many labels. High score + low diversity = low confidence. */
   evidenceDiversity?: EvidenceDiversity
   /** Computed confidence (0-1). Low with few/homogeneous interactions,
-   *  high with many/diverse interactions. Sybil defense: farming cheap
-   *  interactions from one source keeps confidence low. */
+   *  high with many/diverse interactions. Farming cheap interactions under one
+   *  principal label keeps confidence low, but a caller that supplies many labels
+   *  raises it. Its principal diversity component counts unverified caller-supplied
+   *  labels, not independent principals. */
   confidence?: number
   /** ISO timestamp of the first evidence event for this scope.
    *  Used for temporal spread calculation — confidence is penalized
@@ -66,10 +69,11 @@ export interface ReputationObservation {
  * Evidence diversity tracks HOW VARIED an agent's track record is.
  * An agent with 100 tasks from one principal has low diversity.
  * An agent with 30 tasks from 10 principals across 5 task types has high diversity.
- * This is the sybil defense: diverse evidence is hard to fake.
+ * Principal labels are supplied by the caller, so diversity reflects what the caller
+ * declared. It is not evidence that the principals are independent of each other.
  */
 export interface EvidenceDiversity {
-  /** Number of distinct principals who delegated to this agent */
+  /** Number of distinct caller-supplied principal labels. */
   distinctPrincipals: number
   /** Number of distinct task types completed */
   distinctTaskTypes: number
@@ -79,7 +83,8 @@ export interface EvidenceDiversity {
   successCount: number
   /** Number of failed interactions */
   failureCount: number
-  /** Set of principal IDs (for dedup — stored as hashes for privacy) */
+  /** Caller-supplied principal labels used for deduplication.
+   *  updateReputationFromResult does not hash or verify them. */
   principalHashes: string[]
   /** Set of task type strings seen */
   taskTypesSeen: string[]
