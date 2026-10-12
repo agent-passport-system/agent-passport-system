@@ -6,7 +6,7 @@ Thanks for your interest in contributing to the Agent Passport System! This proj
 
 1. Fork the repository
 2. Clone your fork: `git clone https://github.com/<your-username>/agent-passport-system.git`
-3. Install dependencies: `npm install`
+3. Install dependencies with npm 10 (10.8.2 or a later 10.x): `npm install`. `devEngines` in `package.json` stops npm 11, which on macOS rewrites the lockfile without optional platform entries that CI needs. Node 20 and Node 22 ship npm 10. With npm 11 installed globally, put npm 10 first on your PATH, for example `npm install --prefix ~/.npm10 npm@10` and `export PATH=~/.npm10/node_modules/.bin:$PATH`.
 4. Run the test suite: `npm test`
 
 ## Development
