@@ -288,6 +288,17 @@ export type CyclesVerifyReason =
    *  is absent). APS#43 (a): envelope signature validity. Distinct from
    *  EVIDENCE_REF_HASH_MISMATCH, which is the receipt↔envelope hash binding. */
   | 'EVIDENCE_SIGNATURE_INVALID'
+  /** Permit and release only (8.0.0). The supplied envelope lacks, or carries
+   *  in malformed form, a field the correspondence check needs: its
+   *  `artifact_type`, the payload variant, or that variant's reservation_id.
+   *  Also returned when the receipt's own reservation_id is absent. */
+  | 'EVIDENCE_CORRESPONDENCE_FIELD_MISSING'
+  /** Permit and release only (8.0.0). The supplied envelope is a different
+   *  stage than the receipt references (a permit references the reserve event,
+   *  a release references the release event), its payload variant disagrees
+   *  with its `artifact_type`, or it names a different reservation_id. Amount,
+   *  unit, action and server identity are not compared. */
+  | 'EVIDENCE_CORRESPONDENCE_MISMATCH'
   | 'DID_RESOLVER_MISSING'
   | 'DID_URI_INVALID'
   | 'DID_DOC_NOT_FOUND'
@@ -321,6 +332,33 @@ export type EvidenceAuthenticity = 'signature_valid' | 'pinned_issuer'
 export type CyclesVerifyResult =
   | { valid: true; evidence_authenticity?: EvidenceAuthenticity }
   | { valid: false; reason: CyclesVerifyReason; detail?: string }
+
+/**
+ * Receipt-to-envelope correspondence (8.0.0): is the envelope the Cycles event
+ * the receipt references? A permit references the reserve event for its
+ * reservation, a release references the release event for its reservation.
+ *
+ *  - `matched`        : stage and reservation_id agree. Nothing more. The
+ *                       fields listed in `not_compared` (amount, unit, action,
+ *                       server identity) are NOT checked.
+ *  - `field_missing`  : a field the check needs is absent or malformed. Never
+ *                       a pass.
+ *  - `mismatch`       : wrong stage, a payload variant that disagrees with
+ *                       `artifact_type`, or a different reservation_id.
+ *  - `not_applicable` : denial receipts (their envelopes may legitimately be
+ *                       error, decide or dry-run reserve events), or no matched
+ *                       envelope to evaluate.
+ */
+export type CyclesEvidenceCorrespondence =
+  | {
+      status: 'matched'
+      stage: 'reserve' | 'release'
+      reservation_id: string
+      not_compared: readonly string[]
+    }
+  | { status: 'field_missing'; field: string; detail: string }
+  | { status: 'mismatch'; field: string; detail: string }
+  | { status: 'not_applicable'; reason: string }
 
 // ── Sign-function input shapes (mirror the mpp/x402 pattern) ──────
 
@@ -479,7 +517,14 @@ export interface VerifyCyclesOptions {
    *  `cycles_evidence.cycles_evidence_id_sha256` (receipt binds to THIS
    *  envelope). When omitted, the check is skipped — signature-only
    *  verification, preserving prior behavior. APS does not own the fetch
-   *  contract; the caller retrieves the envelope and passes it in. */
+   *  contract; the caller retrieves the envelope and passes it in.
+   *
+   *  8.0.0: for permit and release receipts the supplied envelope must also
+   *  correspond to the receipt: same stage (reserve for a permit, release for
+   *  a release) and the same reservation_id. Failure is
+   *  EVIDENCE_CORRESPONDENCE_FIELD_MISSING or EVIDENCE_CORRESPONDENCE_MISMATCH.
+   *  Amount, unit, action and server identity are not compared. Denial
+   *  receipts are not checked for correspondence. */
   evidence?: CyclesEvidenceEnvelopeInput
 }
 

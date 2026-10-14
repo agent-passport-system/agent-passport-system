@@ -100,6 +100,7 @@ export {
 import type {
   CyclesDenial,
   CyclesDenialDetail,
+  CyclesEvidenceCorrespondence,
   CyclesEvidenceEnvelopeInput,
   CyclesEvidenceView,
   CyclesPermitReceipt,
@@ -113,11 +114,13 @@ import type {
   VerifyCyclesOptions,
 } from './types.js'
 import {
+  readEvidenceFetchResult,
   resolveEvidenceRef,
   toEvidenceDescriptorInput,
 } from './evidence-resolution.js'
 import type {
   EvidenceDescriptorInput,
+  EvidenceFetchResult,
   EvidenceResolutionResult,
   FetchedCyclesEvidenceEnvelope,
 } from './evidence-resolution.js'
@@ -343,7 +346,9 @@ export function signCyclesPermitReceipt(
 }
 
 /** Verify a Cycles permit receipt (sync). With `options.evidence`, also
- *  checks the receipt↔envelope hash binding (see `_checkEvidenceJoin`).
+ *  checks the receipt↔envelope hash binding and that the envelope is the
+ *  referenced stage for the same reservation_id (see `_checkEvidenceJoin`).
+ *  Amount, unit, action and server identity are not compared.
  *  NOTE: `valid: true` does NOT assert the envelope's own Ed25519
  *  authenticity or signer authority — that is the v0.2 item (#43). Pin
  *  `expected_signer` for issuer trust until then. */
@@ -351,11 +356,9 @@ export function verifyCyclesPermitReceipt(
   receipt: CyclesPermitReceipt,
   options: VerifyCyclesOptions = {},
 ): CyclesVerifyResult {
-  return _verifyReceiptCore(
-    receipt,
-    RAIL_BUDGET_RESERVATION_PERMIT_CLAIM_TYPE,
-    options,
-  )
+  const captured = _captureInputs(receipt, options)
+  if (!captured.ok) return captured.failure
+  return _verifyReceiptCore(captured.receipt, RAIL_BUDGET_RESERVATION_PERMIT_CLAIM_TYPE, captured.options)
 }
 
 /** Verify a Cycles permit receipt (async, DID-URI signers). Join-integrity
@@ -365,7 +368,9 @@ export async function verifyCyclesPermitReceiptWithDID(
   receipt: CyclesPermitReceipt,
   options: VerifyCyclesOptions = {},
 ): Promise<CyclesVerifyResult> {
-  return _verifyReceiptWithDID(receipt, RAIL_BUDGET_RESERVATION_PERMIT_CLAIM_TYPE, options)
+  const captured = _captureInputs(receipt, options)
+  if (!captured.ok) return captured.failure
+  return _verifyReceiptWithDID(captured.receipt, RAIL_BUDGET_RESERVATION_PERMIT_CLAIM_TYPE, captured.options)
 }
 
 // ── Sign / verify: release receipt ────────────────────────────────
@@ -400,7 +405,9 @@ export function signCyclesReleaseReceipt(
 }
 
 /** Verify a Cycles release receipt (sync). With `options.evidence`, also
- *  checks the receipt↔envelope hash binding (see `_checkEvidenceJoin`).
+ *  checks the receipt↔envelope hash binding and that the envelope is the
+ *  referenced stage for the same reservation_id (see `_checkEvidenceJoin`).
+ *  Amount, unit, action and server identity are not compared.
  *  NOTE: `valid: true` does NOT assert the envelope's own Ed25519
  *  authenticity or signer authority — that is the v0.2 item (#43). Pin
  *  `expected_signer` for issuer trust until then. */
@@ -408,11 +415,9 @@ export function verifyCyclesReleaseReceipt(
   receipt: CyclesReleaseReceipt,
   options: VerifyCyclesOptions = {},
 ): CyclesVerifyResult {
-  return _verifyReceiptCore(
-    receipt,
-    RAIL_BUDGET_RESERVATION_RELEASE_CLAIM_TYPE,
-    options,
-  )
+  const captured = _captureInputs(receipt, options)
+  if (!captured.ok) return captured.failure
+  return _verifyReceiptCore(captured.receipt, RAIL_BUDGET_RESERVATION_RELEASE_CLAIM_TYPE, captured.options)
 }
 
 /** Verify a Cycles release receipt (async, DID-URI signers). Join-integrity
@@ -422,7 +427,9 @@ export async function verifyCyclesReleaseReceiptWithDID(
   receipt: CyclesReleaseReceipt,
   options: VerifyCyclesOptions = {},
 ): Promise<CyclesVerifyResult> {
-  return _verifyReceiptWithDID(receipt, RAIL_BUDGET_RESERVATION_RELEASE_CLAIM_TYPE, options)
+  const captured = _captureInputs(receipt, options)
+  if (!captured.ok) return captured.failure
+  return _verifyReceiptWithDID(captured.receipt, RAIL_BUDGET_RESERVATION_RELEASE_CLAIM_TYPE, captured.options)
 }
 
 // ── Sign / verify: denial ─────────────────────────────────────────
@@ -509,6 +516,15 @@ type AnyCyclesSigned = CyclesPermitReceipt | CyclesReleaseReceipt | CyclesDenial
  *      but `evidence_id` POPULATED — per cycles-evidence-v0.1's normative
  *      "Signature derivation". Failure → EVIDENCE_SIGNATURE_INVALID.
  *
+ *   3. CORRESPONDENCE (8.0.0, permit and release only): the envelope is the
+ *      event the receipt references, same stage and same reservation_id (see
+ *      `_evaluateCorrespondence`). Failure → EVIDENCE_CORRESPONDENCE_FIELD_MISSING
+ *      or EVIDENCE_CORRESPONDENCE_MISMATCH. Denials are not checked here.
+ *      The permit and release entry points pass captured inputs (see
+ *      `_captureInputs`), so checks 1 to 3 read one value whose fields are
+ *      exactly those in the hashed and signed bytes. The stage comes from the
+ *      entry point's receipt kind.
+ *
  * Scope boundary (the (a)/(b) split): check 2 proves the bytes were signed
  * by the key in `signer_did` — it does NOT prove that key is the legitimate
  * Cycles signer rather than an attacker key inside a self-consistent forgery.
@@ -525,6 +541,7 @@ type AnyCyclesSigned = CyclesPermitReceipt | CyclesReleaseReceipt | CyclesDenial
 function _checkEvidenceJoin(
   obj: AnyCyclesSigned,
   options: VerifyCyclesOptions,
+  stage: CorrespondenceStage | undefined,
 ): CyclesVerifyResult | null {
   const env: CyclesEvidenceEnvelopeInput | undefined = options.evidence
   if (!env) return null
@@ -536,14 +553,14 @@ function _checkEvidenceJoin(
     return {
       valid: false,
       reason: 'EVIDENCE_REF_HASH_MISMATCH',
-      detail: `envelope evidence_id ${String(env.evidence_id)} != recomputed ${recomputed}`,
+      detail: `envelope evidence_id ${_show(env.evidence_id)} != recomputed ${recomputed}`,
     }
   }
   if (recomputed !== obj.cycles_evidence.cycles_evidence_id_sha256) {
     return {
       valid: false,
       reason: 'EVIDENCE_REF_HASH_MISMATCH',
-      detail: `receipt cycles_evidence_id_sha256 ${obj.cycles_evidence.cycles_evidence_id_sha256} != envelope ${recomputed}`,
+      detail: `receipt cycles_evidence_id_sha256 ${_show(obj.cycles_evidence.cycles_evidence_id_sha256)} != envelope ${recomputed}`,
     }
   }
 
@@ -568,7 +585,290 @@ function _checkEvidenceJoin(
       detail: 'envelope Ed25519 signature does not verify against signer_did',
     }
   }
+
+  // (c) Correspondence (permit and release): the envelope must be the event
+  // the receipt references. Runs only after the hash and signature checks
+  // pass, so a semantic failure is reported as such. The stage comes from
+  // the entry point's receipt kind, never from a field of the input.
+  if (!stage) return null
+  const correspondence = _evaluateCorrespondence(stage, obj, env)
+  if (correspondence.status === 'field_missing') {
+    return {
+      valid: false,
+      reason: 'EVIDENCE_CORRESPONDENCE_FIELD_MISSING',
+      detail: `${correspondence.field}: ${correspondence.detail}`,
+    }
+  }
+  if (correspondence.status === 'mismatch') {
+    return {
+      valid: false,
+      reason: 'EVIDENCE_CORRESPONDENCE_MISMATCH',
+      detail: `${correspondence.field}: ${correspondence.detail}`,
+    }
+  }
   return null
+}
+
+/** Fields deliberately outside the correspondence check. No equivalence rule
+ *  is defined for them yet (estimate vs reserved vs actual amounts, unit
+ *  families, action naming, server identity). Reported, never compared. */
+const CORRESPONDENCE_NOT_COMPARED: readonly string[] = Object.freeze([
+  'amount',
+  'unit',
+  'action',
+  'server_id',
+])
+
+function _isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+
+type CorrespondenceStage = 'reserve' | 'release'
+
+/** The stage a receipt kind references. Taken from the verifier entry point,
+ *  never from the input, so a changing `claim_type` cannot switch the check off. */
+function _stageFor(claimType: string): CorrespondenceStage | undefined {
+  if (claimType === RAIL_BUDGET_RESERVATION_PERMIT_CLAIM_TYPE) return 'reserve'
+  if (claimType === RAIL_BUDGET_RESERVATION_RELEASE_CLAIM_TYPE) return 'release'
+  return undefined
+}
+
+/** Detail text for any value. `String()` throws on a prototype-free object,
+ *  so fall back to JSON. Ordinary values print exactly as before. */
+function _show(v: unknown): string {
+  try {
+    return String(v)
+  } catch {
+    try {
+      return JSON.stringify(v) ?? 'unprintable'
+    } catch {
+      return 'unprintable'
+    }
+  }
+}
+
+function _parseTime(v: unknown): number {
+  try {
+    return Date.parse(v as string)
+  } catch {
+    return NaN
+  }
+}
+
+/** JSON.parse reviver: every object becomes a prototype-free record, so a
+ *  property lookup finds own fields only, even if Object.prototype carries
+ *  extra properties. Arrays stay arrays. */
+function _prototypeFree(_key: string, value: unknown): unknown {
+  if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+    return Object.assign(Object.create(null), value)
+  }
+  return value
+}
+
+type Capture<T> = { ok: true; value: T } | { ok: false; detail: string }
+
+/**
+ * Capture an input as the data its canonical bytes encode: one JCS
+ * canonicalization, parsed back into prototype-free records. Inherited,
+ * non-enumerable and accessor properties and non-JSON containers such as Date
+ * are absent or already reduced to their JSON form, and later reads cannot
+ * change. Hashing, signature checks and correspondence on the permit and
+ * release paths read only captured values.
+ */
+function _capture<T>(value: T): Capture<T> {
+  let bytes: string
+  try {
+    bytes = canonicalizeJCS(value)
+  } catch (err) {
+    return { ok: false, detail: `has no canonical JSON form (${err instanceof Error ? err.message : _show(err)})` }
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(bytes, _prototypeFree)
+  } catch (err) {
+    return { ok: false, detail: `has no capturable JSON form (${err instanceof Error ? err.message : _show(err)})` }
+  }
+  if (!_isPlainObject(parsed)) return { ok: false, detail: 'is not a JSON object' }
+  return { ok: true, value: parsed as T }
+}
+
+/** Every supported option, read by name. The check below fails the build if
+ *  VerifyCyclesOptions gains a key that is not listed here. */
+const VERIFY_OPTION_KEYS = [
+  'now',
+  'ttl_seconds',
+  'expected_signer',
+  'resolveDidDocument',
+  'resolveEvidence',
+  'evidenceFailurePolicy',
+  'cyclesKeyResolver',
+  'expectedEvidenceSigner',
+  'maxEvidenceClockSkewMs',
+  'evidence',
+] as const satisfies readonly (keyof VerifyCyclesOptions)[]
+type _UnlistedOptionKey = Exclude<keyof VerifyCyclesOptions, (typeof VERIFY_OPTION_KEYS)[number]>
+const _allOptionKeysListed: [_UnlistedOptionKey] extends [never] ? true : never = true
+void _allOptionKeysListed
+
+/** Snapshot of the caller's options: each supported option read once by
+ *  ordinary property lookup, as verification always has (own, non-enumerable
+ *  or inherited), into a prototype-free object. Later reads and writes touch
+ *  only this snapshot, so an accessor on Object.prototype cannot intercept
+ *  them, and no constraint the caller supplied is dropped. */
+function _snapshotOptions(options: VerifyCyclesOptions): VerifyCyclesOptions {
+  const out = Object.create(null) as Record<string, unknown>
+  for (const key of VERIFY_OPTION_KEYS) {
+    const value = (options as Record<string, unknown>)[key]
+    if (value !== undefined) out[key] = value
+  }
+  return out as VerifyCyclesOptions
+}
+
+function _isFetchFailureStatus(v: unknown): v is 'not_found' | 'unreachable' | 'malformed' {
+  return v === 'not_found' || v === 'unreachable' || v === 'malformed'
+}
+
+/** The envelope a resolution result actually carries: an own property only,
+ *  so a value on Object.prototype is never mistaken for a fetched envelope. */
+function _ownEnvelope(evidence: EvidenceResolutionResult): EvidenceResolutionResult['envelope'] {
+  return Object.prototype.hasOwnProperty.call(evidence, 'envelope') ? evidence.envelope : undefined
+}
+
+type CapturedInputs<R> =
+  | { ok: true; receipt: R; options: VerifyCyclesOptions }
+  | { ok: false; failure: CyclesVerifyResult; field: 'receipt' | 'envelope'; detail: string; options: VerifyCyclesOptions }
+
+/**
+ * Entry step for every permit and release verifier. Captures the receipt, the
+ * supplied envelope, and (through the resolver) any fetched envelope. A failed
+ * capture is a structured rejection. Verification never resumes on the
+ * uncaptured object. Denial verifiers do not use this.
+ */
+function _captureInputs<R extends AnyCyclesSigned>(receipt: R, options: VerifyCyclesOptions): CapturedInputs<R> {
+  // One read of each supported option into a prototype-free snapshot (see
+  // `_snapshotOptions`). Captured values below replace the originals there.
+  const out = _snapshotOptions(options)
+  const supplied = out.evidence
+  const inner = out.resolveEvidence
+  delete out.evidence
+  delete out.resolveEvidence
+  const r = _capture(receipt)
+  if (!r.ok) {
+    const detail = `receipt ${r.detail}, so its signature cannot be checked`
+    return { ok: false, field: 'receipt', detail, options: out, failure: { valid: false, reason: 'SIGNATURE_INVALID', detail } }
+  }
+  if (supplied) {
+    const e = _capture(supplied)
+    if (!e.ok) {
+      const detail = `envelope ${e.detail}, so its content hash cannot be recomputed`
+      return { ok: false, field: 'envelope', detail, options: out, failure: { valid: false, reason: 'EVIDENCE_REF_HASH_MISMATCH', detail } }
+    }
+    out.evidence = e.value
+  }
+  if (inner) {
+    out.resolveEvidence = {
+      canResolve: (url: string) => inner.canResolve(url),
+      resolve: async (url: string): Promise<EvidenceFetchResult> => {
+        // Read the caller's result once and return a fresh object, never the
+        // caller's own, so resolution cannot re-read a changing field.
+        const got = readEvidenceFetchResult(await inner.resolve(url))
+        const ok = got.ok
+        const envelope = got.envelope
+        const status = got.status
+        const reason = got.reason
+        if (!ok || !envelope) {
+          // A failure keeps only a status that means failure. Anything else,
+          // including a value that is not the resolver's own, becomes malformed.
+          const failed = Object.create(null) as EvidenceFetchResult
+          failed.ok = false
+          if (status !== undefined) failed.status = _isFetchFailureStatus(status) ? status : 'malformed'
+          if (typeof reason === 'string') failed.reason = reason
+          return failed
+        }
+        const e = _capture(envelope)
+        return e.ok
+          ? { ok: true, envelope: e.value }
+          : { ok: false, status: 'malformed', reason: `envelope ${e.detail}` }
+      },
+    }
+  }
+  return { ok: true, receipt: r.value, options: out }
+}
+
+/**
+ * Receipt-to-envelope correspondence (8.0.0). A permit references the reserve
+ * event for its reservation, a release references the release event for its
+ * reservation. Checks, in order: the receipt's reservation_id, the envelope's
+ * `artifact_type`, agreement of the single payload variant with that
+ * `artifact_type`, and the envelope's reservation_id at the stage path
+ * (reserve: payload.reserve.response.reservation_id, release:
+ * payload.release.reservation_id). A missing or malformed field is
+ * `field_missing`, never a pass. Callers pass the stage from the verifier
+ * entry point and captured inputs only (see `_captureInputs`).
+ */
+function _evaluateCorrespondence(
+  stage: CorrespondenceStage,
+  obj: AnyCyclesSigned,
+  env: Record<string, unknown>,
+): CyclesEvidenceCorrespondence {
+  const receiptReservation = (obj as { reservation_id?: unknown }).reservation_id
+  if (typeof receiptReservation !== 'string' || receiptReservation.length === 0) {
+    return {
+      status: 'field_missing',
+      field: 'receipt.reservation_id',
+      detail: 'absent or not a non-empty string',
+    }
+  }
+  const artifactType = env.artifact_type
+  if (typeof artifactType !== 'string' || artifactType.length === 0) {
+    return { status: 'field_missing', field: 'artifact_type', detail: 'absent or not a non-empty string' }
+  }
+  if (artifactType !== stage) {
+    return {
+      status: 'mismatch',
+      field: 'artifact_type',
+      detail: `receipt references a ${stage} event, envelope is ${artifactType}`,
+    }
+  }
+  const payload = env.payload
+  if (!_isPlainObject(payload)) {
+    return { status: 'field_missing', field: 'payload', detail: 'absent or not an object' }
+  }
+  const variants = Object.keys(payload)
+  if (variants.length === 0) {
+    return { status: 'field_missing', field: 'payload', detail: 'no payload variant' }
+  }
+  if (variants.length !== 1 || variants[0] !== stage) {
+    return {
+      status: 'mismatch',
+      field: 'payload',
+      detail: `payload variant [${variants.join(', ')}] does not agree with artifact_type ${stage}`,
+    }
+  }
+  const variant = payload[stage]
+  if (!_isPlainObject(variant)) {
+    return { status: 'field_missing', field: `payload.${stage}`, detail: 'absent or not an object' }
+  }
+  const holder = stage === 'reserve' ? variant.response : variant
+  const path =
+    stage === 'reserve' ? 'payload.reserve.response.reservation_id' : 'payload.release.reservation_id'
+  const envReservation = _isPlainObject(holder) ? holder.reservation_id : undefined
+  if (typeof envReservation !== 'string' || envReservation.length === 0) {
+    return { status: 'field_missing', field: path, detail: 'absent or not a non-empty string' }
+  }
+  if (envReservation !== receiptReservation) {
+    return {
+      status: 'mismatch',
+      field: 'reservation_id',
+      detail: `receipt ${receiptReservation} != envelope ${envReservation}`,
+    }
+  }
+  return {
+    status: 'matched',
+    stage,
+    reservation_id: receiptReservation,
+    not_compared: CORRESPONDENCE_NOT_COMPARED,
+  }
 }
 
 /**
@@ -599,28 +899,34 @@ function _verifyReceiptCore(
   const ttl = options.ttl_seconds ?? 24 * 60 * 60
 
   if (obj.claim_type !== expectedClaimType) {
-    return { valid: false, reason: 'INVALID_CLAIM_TYPE', detail: `expected ${expectedClaimType} got ${obj.claim_type}` }
+    return { valid: false, reason: 'INVALID_CLAIM_TYPE', detail: `expected ${expectedClaimType} got ${_show(obj.claim_type)}` }
   }
   if (!obj.receipt_id || !obj.signer || !obj.agent_id || !obj.delegation_ref || !obj.action_ref) {
     return { valid: false, reason: 'MISSING_REQUIRED_FIELD' }
   }
   if (obj.rail_name !== 'cycles') {
-    return { valid: false, reason: 'INVALID_RAIL_NAME', detail: `expected 'cycles' got ${String(obj.rail_name)}` }
+    return { valid: false, reason: 'INVALID_RAIL_NAME', detail: `expected 'cycles' got ${_show(obj.rail_name)}` }
   }
-  if (!obj.cycles_evidence?.cycles_evidence_url || !obj.cycles_evidence?.cycles_evidence_id_sha256) {
+  // cycles_evidence must be an object. An array or other value would let its
+  // fields be looked up on a prototype instead of in the signed bytes.
+  if (
+    !_isPlainObject(obj.cycles_evidence) ||
+    !obj.cycles_evidence.cycles_evidence_url ||
+    !obj.cycles_evidence.cycles_evidence_id_sha256
+  ) {
     return { valid: false, reason: 'MISSING_REQUIRED_FIELD', detail: 'cycles_evidence' }
   }
   // Join-integrity: when the fetched envelope is supplied, bind it to the
   // receipt. Runs before signature/DID checks so a broken receipt↔envelope
   // join surfaces regardless of signer type (the DID path calls this core
   // first and propagates any non-DID_RESOLVER_MISSING failure unchanged).
-  const joinFailure = _checkEvidenceJoin(obj, options)
+  const joinFailure = _checkEvidenceJoin(obj, options, _stageFor(expectedClaimType))
   if (joinFailure) return joinFailure
   if (options.expected_signer && obj.signer !== options.expected_signer) {
     return { valid: false, reason: 'SIGNATURE_INVALID', detail: 'signer mismatch' }
   }
 
-  const issuedMs = Date.parse(obj.issued_at)
+  const issuedMs = _parseTime(obj.issued_at)
   if (!Number.isFinite(issuedMs)) {
     return { valid: false, reason: 'MISSING_REQUIRED_FIELD', detail: 'issued_at' }
   }
@@ -636,7 +942,7 @@ function _verifyReceiptCore(
     return { valid: false, reason: 'MISSING_REQUIRED_FIELD', detail: 'timestamp != issued_at' }
   }
   if (
-    !obj.scope_of_claim ||
+    !_isPlainObject(obj.scope_of_claim) ||
     typeof obj.scope_of_claim.asserts !== 'string' ||
     obj.scope_of_claim.asserts.length === 0
   ) {
@@ -677,7 +983,7 @@ async function _verifyReceiptWithDID(
   if (!parsed) return { valid: false, reason: 'DID_URI_INVALID' }
   const didDoc = await options.resolveDidDocument(parsed.agentId)
   if (!didDoc) return { valid: false, reason: 'DID_DOC_NOT_FOUND' }
-  const issuedMs = Date.parse(obj.issued_at)
+  const issuedMs = _parseTime(obj.issued_at)
   const result = resolveVerificationMethod(
     didDoc,
     obj.signer,
@@ -726,6 +1032,13 @@ export interface CyclesVerifyWithEvidenceResult {
    *  resolved from the server's JWK Set under the issuance-time window verifies
    *  the envelope (after its evidence_id re-derives). */
   authority: CyclesEvidenceAuthorityResult
+  /** Receipt-to-envelope correspondence for the FETCHED envelope (8.0.0).
+   *  Evaluated for permit and release receipts when resolution `matched`,
+   *  else `not_applicable`. Additive and independent of `verify`, `evidence`
+   *  and `authority`: a consumer that needs "this envelope is the event this
+   *  receipt references" must read it. `matched` covers stage and
+   *  reservation_id only. */
+  correspondence: CyclesEvidenceCorrespondence
 }
 
 /**
@@ -821,6 +1134,21 @@ const _verified = (
 }
 
 const RAW_HEX_KEY = /^[0-9a-fA-F]{64}$/
+
+/** The supported fields of a key resolver answer, each read once by name and
+ *  only when it is the answer's own property (enumerable or not), into a
+ *  prototype-free record. No other field is read. Undefined for anything that
+ *  is not an object. Callers read this inside their error guard, so a
+ *  throwing accessor on a supported field becomes a structured failure. */
+const KEY_ANSWER_FIELDS = ['ok', 'publicKeyHex', 'kid', 'status', 'reason'] as const
+function _readKeyAnswer(value: unknown): Record<(typeof KEY_ANSWER_FIELDS)[number], unknown> | undefined {
+  if (value === null || typeof value !== 'object') return undefined
+  const out = Object.create(null) as Record<(typeof KEY_ANSWER_FIELDS)[number], unknown>
+  for (const key of KEY_ANSWER_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(value, key)) out[key] = (value as Record<string, unknown>)[key]
+  }
+  return out
+}
 
 /** Map a non-ok KeyResolution status to the spec disposition. Failure to
  *  OBTAIN/parse the SET (network, or an unparseable set body) is
@@ -918,7 +1246,7 @@ async function _resolveEnvelopeAuthority(
     return _authority('signature_invalid', `envelope canonicalization failed: ${err instanceof Error ? err.message : String(err)}`)
   }
   if (recomputedId !== env.evidence_id) {
-    return _authority('signature_invalid', `evidence_id does not re-derive (${recomputedId} != ${String(env.evidence_id)}) — envelope tampered`)
+    return _authority('signature_invalid', `evidence_id does not re-derive (${recomputedId} != ${_show(env.evidence_id)}) — envelope tampered`)
   }
 
   const resolver: KeyResolver | undefined = options.cyclesKeyResolver
@@ -941,22 +1269,31 @@ async function _resolveEnvelopeAuthority(
 
   // The verify path must never throw — a non-conformant resolver that rejects
   // is treated as a resolution failure, never authentic.
-  let resolution
+  // Read the key resolver's answer from its own supported properties only,
+  // once, inside the guard. A key or success flag found only on
+  // Object.prototype is not a resolution.
+  let res
   try {
-    resolution = await resolver.resolve(locator)
+    res = _readKeyAnswer(await resolver.resolve(locator))
   } catch (err) {
     return _authority('signer_resolution_failed', `authority resolution threw: ${err instanceof Error ? err.message : String(err)}`)
   }
-  if (!resolution.ok || !resolution.publicKeyHex) {
+  if (!res) {
+    return _authority('signer_resolution_failed', 'key resolver did not return an object')
+  }
+  const resStatus = typeof res.status === 'string' ? res.status : ''
+  const resReason = typeof res.reason === 'string' ? res.reason : undefined
+  const publicKeyHex = typeof res.publicKeyHex === 'string' ? res.publicKeyHex : ''
+  if (res.ok !== true || !publicKeyHex) {
     return _authority(
-      _authorityFromResolution(resolution.status, resolution.reason),
-      `signer-key resolution failed (status=${resolution.status}${resolution.reason ? `: ${resolution.reason}` : ''})`,
+      _authorityFromResolution(resStatus, resReason),
+      `signer-key resolution failed (status=${resStatus || 'none'}${resReason ? `: ${resReason}` : ''})`,
     )
   }
-  if (!edVerify(signingInput, signature, resolution.publicKeyHex)) {
+  if (!edVerify(signingInput, signature, publicKeyHex)) {
     return _authority('signature_invalid', 'envelope signature did not verify under the resolved key')
   }
-  return _verified('authentic', signerDid, options, { resolvedKid: resolution.kid })
+  return _verified('authentic', signerDid, options, typeof res.kid === 'string' ? { resolvedKid: res.kid } : {})
 }
 
 async function _verifyWithEvidence(
@@ -969,23 +1306,70 @@ async function _verifyWithEvidence(
 ): Promise<CyclesVerifyWithEvidenceResult> {
   // Run the full receipt verification (DID-aware) first.
   const verify = await _verifyReceiptWithDID(obj, expectedClaimType, options)
+  const stage = _stageFor(expectedClaimType)
   // Resolve the evidence ref regardless of the receipt verdict, so the
   // descriptor always reports the claimed-vs-resolved basis. Resolution
-  // records failure, never throws.
-  const evidence = await resolveEvidenceRef(
-    obj.cycles_evidence,
-    options.resolveEvidence,
-    { failurePolicy: options.evidenceFailurePolicy },
-  )
+  // records failure, never throws. On the permit and release paths a ref that
+  // is not an object is not read (its fields could come from a prototype).
+  const evidence =
+    stage && !_isPlainObject(obj.cycles_evidence)
+      ? await _unreadEvidence('receipt cycles_evidence is not an object', options)
+      : await resolveEvidenceRef(
+          obj.cycles_evidence,
+          options.resolveEvidence,
+          { failurePolicy: options.evidenceFailurePolicy },
+        )
   // Signer authority (#43): resolve the fetched envelope's signer key and
   // verify the envelope's own signature. Independent of the receipt verdict
   // and the hash join; reports one of the five distinct dispositions, never throws.
-  const authority = await _resolveEnvelopeAuthority(evidence.envelope, options)
+  const fetchedEnvelope = _ownEnvelope(evidence)
+  const authority = await _resolveEnvelopeAuthority(fetchedEnvelope, options)
+  // Correspondence (8.0.0) on the FETCHED envelope, reported separately so
+  // verify / evidence / authority keep their meanings.
+  // Stage from the entry point. The fetched envelope reaching here on the
+  // permit and release paths is the captured one (see `_captureInputs`).
+  const correspondence: CyclesEvidenceCorrespondence = !stage
+    ? { status: 'not_applicable', reason: 'correspondence is evaluated for permit and release receipts only' }
+    : evidence.resolved === true && evidence.status === 'matched' && _isPlainObject(fetchedEnvelope)
+      ? _evaluateCorrespondence(stage, obj, fetchedEnvelope)
+      : { status: 'not_applicable', reason: `no matched envelope (status=${evidence.status})` }
   return {
     verify,
     evidence,
     descriptor: toEvidenceDescriptorInput(evidence),
     authority,
+    correspondence,
+  }
+}
+
+/** The fetched-path result when capture failed. Nothing further is read from
+ *  the uncaptured input: verify carries the structured rejection, the evidence
+ *  reference is reported malformed and unresolved, authority is not evaluated,
+ *  and correspondence names the field that could not be captured. */
+/** An evidence result reported as malformed and unresolved, built without
+ *  reading any caller input. */
+function _unreadEvidence(detail: string, options: VerifyCyclesOptions): Promise<EvidenceResolutionResult> {
+  const reason = `not read: ${detail}`
+  return resolveEvidenceRef(
+    { cycles_evidence_url: '', cycles_evidence_id_sha256: '', action_ref: '', delegation_ref: '' },
+    { canResolve: () => true, resolve: async () => ({ ok: false, status: 'malformed', reason }) },
+    { failurePolicy: options.evidenceFailurePolicy },
+  )
+}
+
+async function _rejectedWithEvidence(captured: {
+  failure: CyclesVerifyResult
+  field: 'receipt' | 'envelope'
+  detail: string
+  options: VerifyCyclesOptions
+}): Promise<CyclesVerifyWithEvidenceResult> {
+  const evidence = await _unreadEvidence(captured.detail, captured.options)
+  return {
+    verify: captured.failure,
+    evidence,
+    descriptor: toEvidenceDescriptorInput(evidence),
+    authority: _authority('signer_resolution_failed', `not evaluated: ${captured.detail}`),
+    correspondence: { status: 'field_missing', field: captured.field, detail: captured.detail },
   }
 }
 
@@ -993,14 +1377,18 @@ export async function verifyCyclesPermitReceiptWithEvidence(
   receipt: CyclesPermitReceipt,
   options: VerifyCyclesOptions = {},
 ): Promise<CyclesVerifyWithEvidenceResult> {
-  return _verifyWithEvidence(receipt, RAIL_BUDGET_RESERVATION_PERMIT_CLAIM_TYPE, options)
+  const captured = _captureInputs(receipt, options)
+  if (!captured.ok) return _rejectedWithEvidence(captured)
+  return _verifyWithEvidence(captured.receipt, RAIL_BUDGET_RESERVATION_PERMIT_CLAIM_TYPE, captured.options)
 }
 
 export async function verifyCyclesReleaseReceiptWithEvidence(
   receipt: CyclesReleaseReceipt,
   options: VerifyCyclesOptions = {},
 ): Promise<CyclesVerifyWithEvidenceResult> {
-  return _verifyWithEvidence(receipt, RAIL_BUDGET_RESERVATION_RELEASE_CLAIM_TYPE, options)
+  const captured = _captureInputs(receipt, options)
+  if (!captured.ok) return _rejectedWithEvidence(captured)
+  return _verifyWithEvidence(captured.receipt, RAIL_BUDGET_RESERVATION_RELEASE_CLAIM_TYPE, captured.options)
 }
 
 /**

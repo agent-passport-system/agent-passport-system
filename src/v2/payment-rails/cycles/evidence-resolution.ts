@@ -240,6 +240,32 @@ function claimedOnlyScope(): ScopeOfClaim {
  * @param resolver  caller-supplied envelope resolver, or undefined
  * @param config    failure policy (default fail-closed)
  */
+/** A resolver's answer, read once from its own properties into a
+ *  prototype-free record. Success needs an own `ok === true` and an own
+ *  envelope, so nothing on Object.prototype can turn a resolver answer into a
+ *  fetched envelope. A non-object answer is malformed. */
+export function readEvidenceFetchResult(value: unknown): EvidenceFetchResult {
+  const out = Object.create(null) as EvidenceFetchResult
+  if (value === null || typeof value !== 'object') {
+    out.ok = false
+    out.status = 'malformed'
+    out.reason = 'resolver answer is not an object'
+    return out
+  }
+  const own = (k: string): unknown =>
+    Object.prototype.hasOwnProperty.call(value, k) ? (value as Record<string, unknown>)[k] : undefined
+  const ok = own('ok')
+  const envelope = own('envelope')
+  const status = own('status')
+  const reason = own('reason')
+  out.ok = ok === true && envelope !== null && typeof envelope === 'object'
+  if (out.ok) out.envelope = envelope as FetchedCyclesEvidenceEnvelope
+  if (status === 'not_found' || status === 'unreachable' || status === 'malformed') out.status = status
+  else if (status !== undefined) out.status = 'malformed'
+  if (typeof reason === 'string') out.reason = reason
+  return out
+}
+
 export async function resolveEvidenceRef(
   ref: CyclesEvidenceRef,
   resolver: EvidenceResolver | undefined,
@@ -264,7 +290,7 @@ export async function resolveEvidenceRef(
 
   let fetched: EvidenceFetchResult
   try {
-    fetched = await resolver.resolve(ref.cycles_evidence_url)
+    fetched = readEvidenceFetchResult(await resolver.resolve(ref.cycles_evidence_url))
   } catch (err) {
     // A resolver SHOULD NOT reject, but if it does we record it as
     // unreachable rather than letting it throw out of the verifier.
@@ -272,7 +298,13 @@ export async function resolveEvidenceRef(
   }
 
   if (!fetched.ok || !fetched.envelope) {
-    const status = fetched.status ?? 'unreachable'
+    // Only a failure status may describe a failed fetch. Any other value
+    // (including 'matched') is reported as malformed, never as a match.
+    const reported = fetched.status ?? 'unreachable'
+    const status =
+      reported === 'unreachable' || reported === 'not_found' || reported === 'malformed'
+        ? reported
+        : 'malformed'
     if (status === 'unreachable') {
       return unreachableResult(claimed, failurePolicy, fetched.reason ?? 'envelope unreachable')
     }
@@ -407,16 +439,19 @@ export interface EvidenceDescriptorInput {
 export function toEvidenceDescriptorInput(
   result: EvidenceResolutionResult,
 ): EvidenceDescriptorInput {
-  const input: EvidenceDescriptorInput = {
-    claimed_sha256: result.claimed_sha256,
-    observation_basis: result.resolved ? 'counterparty_resolved' : 'signature_only',
-    envelope_matched: result.resolved,
-    resolution_status: result.status,
-  }
-  if (result.resolved_sha256 !== undefined) {
+  // Prototype-free, so assignments below cannot hit a setter on
+  // Object.prototype and an absent optional field reads as undefined.
+  const input = Object.create(null) as EvidenceDescriptorInput
+  input.claimed_sha256 = result.claimed_sha256
+  input.observation_basis = result.resolved ? 'counterparty_resolved' : 'signature_only'
+  input.envelope_matched = result.resolved
+  input.resolution_status = result.status
+  // Own properties only, so a value on Object.prototype never appears as a
+  // resolved hash or a degraded flag.
+  if (Object.prototype.hasOwnProperty.call(result, 'resolved_sha256') && result.resolved_sha256 !== undefined) {
     input.resolved_sha256 = result.resolved_sha256
   }
-  if (result.degraded !== undefined) {
+  if (Object.prototype.hasOwnProperty.call(result, 'degraded') && result.degraded !== undefined) {
     input.degraded = result.degraded
   }
   return input
