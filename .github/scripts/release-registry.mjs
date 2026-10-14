@@ -15,11 +15,11 @@ export class RegistryNotVisibleError extends Error {}
 
 // The registry needs a moment to make a freshly published version, and its
 // provenance metadata, readable. Only those not-yet-visible conditions are
-// retried, 12 attempts with a fixed 15 s wait, about three minutes in total.
-// The 7.1.0 release took about two minutes to become visible, so a shorter
-// window fails the step it is meant to fix. Any digest, integrity or identity
-// mismatch fails at once.
-const RETRY_ATTEMPTS = 12;
+// retried, 40 attempts with a fixed 15 s wait, just under ten minutes in total.
+// The 7.1.0 release took about two minutes to become visible and 8.0.0 about
+// six, so the earlier three minute window failed a release that had published
+// correctly. Any digest, integrity or identity mismatch still fails at once.
+const RETRY_ATTEMPTS = 40;
 const RETRY_DELAY_MS = 15_000;
 
 export function artifactDigests(bytes) {
