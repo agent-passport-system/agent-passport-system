@@ -1,0 +1,1285 @@
+{
+  "name": "cycles-correspondence-vectors",
+  "version": "0",
+  "sdk_rule_since": "agent-passport-system 8.0.0",
+  "rule": "With an envelope supplied, a permit receipt must cite a reserve envelope and a release receipt a release envelope, each naming the receipt's own reservation_id. Only stage and reservation are compared. Denials are not checked. The hash and envelope signature checks run first.",
+  "receipt_issuer_public_key": "c0b5ff6f909608448ec0e2bcbc5e5755d4d5031038f955af1e9f4123aeb14e41",
+  "resigned_envelope_signer": "e86367ca6dcb401d44208e48f140c84064996fa5db8dc4050e7d55c13bfda4c0",
+  "cases": [
+    {
+      "id": "permit-own-reserve",
+      "description": "Permit citing the reserve envelope of its own reservation.",
+      "verifier": "permit",
+      "receipt": {
+        "claim_type": "rail.budget_reservation.permit.v1",
+        "receipt_id": "cycles_permit_202a8322-0b6a-4083-8591-6bd70fdaa58a",
+        "signer": "c0b5ff6f909608448ec0e2bcbc5e5755d4d5031038f955af1e9f4123aeb14e41",
+        "agent_id": "agent-cycles-001",
+        "delegation_ref": "aps:delegation:cycles-001",
+        "action_ref": "aps:action:cycles-001",
+        "rail_name": "cycles",
+        "reservation_id": "rsv_01HZZ8N4F8FBQX5K6TGYR0M0A3",
+        "reserved": {
+          "unit": "USD_MICROCENTS",
+          "amount": 2000000
+        },
+        "decision": "ALLOW",
+        "cycles_evidence": {
+          "cycles_evidence_url": "https://cycles.example.com/v1/evidence/abc",
+          "cycles_evidence_id_sha256": "ca70a9c6816d463614ec46b19266ff286bde220c2caf0951ae7888cc36c485aa",
+          "action_ref": "aps:action:cycles-test-001",
+          "delegation_ref": "aps:delegation:cycles-test-001"
+        },
+        "issued_at": "2026-10-14T23:40:51.628Z",
+        "timestamp": "2026-10-14T23:40:51.628Z",
+        "scope_of_claim": {
+          "asserts": "aps:cycles.permit:emit — a budget reservation was authorized on the Cycles rail under the named delegation; reservation_id anchors the rail-side outcome and cycles_evidence binds to the signed CyclesEvidence envelope.",
+          "does_not_assert": [
+            "the reservation was committed",
+            "the action governed by the reservation completed",
+            "live ledger state at any time after issuance"
+          ],
+          "capture_mode": "gateway_observed",
+          "completeness": "complete",
+          "self_attested": false
+        },
+        "signature": "f4320fbca188ca645629bcc1c78ae0f38fa4807dbc282172bbc68f61e3d87a884facffe64e94829b10679d6774a04a94b59a638d64c7affee76d70523ce2bf04"
+      },
+      "envelope": {
+        "artifact_type": "reserve",
+        "evidence_id": "ca70a9c6816d463614ec46b19266ff286bde220c2caf0951ae7888cc36c485aa",
+        "issued_at_ms": 1810000000100,
+        "payload": {
+          "reserve": {
+            "request": {
+              "action": {
+                "kind": "model.call",
+                "name": "gpt-4o"
+              },
+              "estimate": {
+                "amount": 2000000,
+                "unit": "USD_MICROCENTS"
+              },
+              "idempotency_key": "01HZZ8N4F8FBQX5K6TGYR0M0A2",
+              "subject": {
+                "agent": "researcher",
+                "tenant": "acme"
+              },
+              "ttl_ms": 30000
+            },
+            "response": {
+              "affected_scopes": [
+                "tenant"
+              ],
+              "balances": [
+                {
+                  "remaining": {
+                    "amount": 8000000,
+                    "unit": "USD_MICROCENTS"
+                  },
+                  "reserved": {
+                    "amount": 2000000,
+                    "unit": "USD_MICROCENTS"
+                  },
+                  "scope": "tenant",
+                  "scope_path": "tenant=acme",
+                  "spent": {
+                    "amount": 0,
+                    "unit": "USD_MICROCENTS"
+                  }
+                }
+              ],
+              "decision": "ALLOW",
+              "expires_at_ms": 1810000030100,
+              "reservation_id": "rsv_01HZZ8N4F8FBQX5K6TGYR0M0A3",
+              "reserved": {
+                "amount": 2000000,
+                "unit": "USD_MICROCENTS"
+              },
+              "scope_path": "tenant=acme"
+            }
+          }
+        },
+        "schema_version": "cycles-evidence/v0.1",
+        "server_id": "https://cycles.example.com/v1",
+        "signature": "e62228d5389b5b325f287d3f6267c64e8fcba4b374fde30a7b1e569426fc28afadacc69b7be158fc315b533e25f79ed5b21aa87a3ae30e2f37566802fd6c880e",
+        "signer_did": "ec52b49b81eb29ef6f62947cade245c715bf943b7ef2a5f2789288574466fc43",
+        "trace_id": "0af7651916cd43dd8448eb211c80319c"
+      },
+      "expected": {
+        "valid": true,
+        "evidence_authenticity": "signature_valid"
+      }
+    },
+    {
+      "id": "permit-other-reservation",
+      "description": "Permit naming another reservation, citing a reserve envelope.",
+      "verifier": "permit",
+      "receipt": {
+        "claim_type": "rail.budget_reservation.permit.v1",
+        "receipt_id": "cycles_permit_52f1b1e3-6352-4c30-8d45-07d2183b8dd7",
+        "signer": "c0b5ff6f909608448ec0e2bcbc5e5755d4d5031038f955af1e9f4123aeb14e41",
+        "agent_id": "agent-cycles-001",
+        "delegation_ref": "aps:delegation:cycles-001",
+        "action_ref": "aps:action:cycles-001",
+        "rail_name": "cycles",
+        "reservation_id": "rsv_some_other_reservation",
+        "reserved": {
+          "unit": "USD_MICROCENTS",
+          "amount": 2000000
+        },
+        "decision": "ALLOW",
+        "cycles_evidence": {
+          "cycles_evidence_url": "https://cycles.example.com/v1/evidence/abc",
+          "cycles_evidence_id_sha256": "ca70a9c6816d463614ec46b19266ff286bde220c2caf0951ae7888cc36c485aa",
+          "action_ref": "aps:action:cycles-test-001",
+          "delegation_ref": "aps:delegation:cycles-test-001"
+        },
+        "issued_at": "2026-10-14T23:40:51.629Z",
+        "timestamp": "2026-10-14T23:40:51.629Z",
+        "scope_of_claim": {
+          "asserts": "aps:cycles.permit:emit — a budget reservation was authorized on the Cycles rail under the named delegation; reservation_id anchors the rail-side outcome and cycles_evidence binds to the signed CyclesEvidence envelope.",
+          "does_not_assert": [
+            "the reservation was committed",
+            "the action governed by the reservation completed",
+            "live ledger state at any time after issuance"
+          ],
+          "capture_mode": "gateway_observed",
+          "completeness": "complete",
+          "self_attested": false
+        },
+        "signature": "3f1034e4049c5c00ecf55ac6a49e20ad979fe86dea92c5adb5544cdb01b902c0f3fd51b2243a51e23924e676f64313529876f624cb7ef1a3feca7466c6664d0a"
+      },
+      "envelope": {
+        "artifact_type": "reserve",
+        "evidence_id": "ca70a9c6816d463614ec46b19266ff286bde220c2caf0951ae7888cc36c485aa",
+        "issued_at_ms": 1810000000100,
+        "payload": {
+          "reserve": {
+            "request": {
+              "action": {
+                "kind": "model.call",
+                "name": "gpt-4o"
+              },
+              "estimate": {
+                "amount": 2000000,
+                "unit": "USD_MICROCENTS"
+              },
+              "idempotency_key": "01HZZ8N4F8FBQX5K6TGYR0M0A2",
+              "subject": {
+                "agent": "researcher",
+                "tenant": "acme"
+              },
+              "ttl_ms": 30000
+            },
+            "response": {
+              "affected_scopes": [
+                "tenant"
+              ],
+              "balances": [
+                {
+                  "remaining": {
+                    "amount": 8000000,
+                    "unit": "USD_MICROCENTS"
+                  },
+                  "reserved": {
+                    "amount": 2000000,
+                    "unit": "USD_MICROCENTS"
+                  },
+                  "scope": "tenant",
+                  "scope_path": "tenant=acme",
+                  "spent": {
+                    "amount": 0,
+                    "unit": "USD_MICROCENTS"
+                  }
+                }
+              ],
+              "decision": "ALLOW",
+              "expires_at_ms": 1810000030100,
+              "reservation_id": "rsv_01HZZ8N4F8FBQX5K6TGYR0M0A3",
+              "reserved": {
+                "amount": 2000000,
+                "unit": "USD_MICROCENTS"
+              },
+              "scope_path": "tenant=acme"
+            }
+          }
+        },
+        "schema_version": "cycles-evidence/v0.1",
+        "server_id": "https://cycles.example.com/v1",
+        "signature": "e62228d5389b5b325f287d3f6267c64e8fcba4b374fde30a7b1e569426fc28afadacc69b7be158fc315b533e25f79ed5b21aa87a3ae30e2f37566802fd6c880e",
+        "signer_did": "ec52b49b81eb29ef6f62947cade245c715bf943b7ef2a5f2789288574466fc43",
+        "trace_id": "0af7651916cd43dd8448eb211c80319c"
+      },
+      "expected": {
+        "valid": false,
+        "reason": "EVIDENCE_CORRESPONDENCE_MISMATCH",
+        "detail_prefix": "reservation_id"
+      }
+    },
+    {
+      "id": "permit-commit-envelope",
+      "description": "Permit citing the commit envelope of the same reservation.",
+      "verifier": "permit",
+      "receipt": {
+        "claim_type": "rail.budget_reservation.permit.v1",
+        "receipt_id": "cycles_permit_9f80c25a-e6f7-4aa7-b884-336f2daf2129",
+        "signer": "c0b5ff6f909608448ec0e2bcbc5e5755d4d5031038f955af1e9f4123aeb14e41",
+        "agent_id": "agent-cycles-001",
+        "delegation_ref": "aps:delegation:cycles-001",
+        "action_ref": "aps:action:cycles-001",
+        "rail_name": "cycles",
+        "reservation_id": "rsv_01HZZ8N4F8FBQX5K6TGYR0M0A3",
+        "reserved": {
+          "unit": "USD_MICROCENTS",
+          "amount": 2000000
+        },
+        "decision": "ALLOW",
+        "cycles_evidence": {
+          "cycles_evidence_url": "https://cycles.example.com/v1/evidence/abc",
+          "cycles_evidence_id_sha256": "f8ebfb3918bcc3d610d80d56f649c3a8721a0e5d5ab650471f65bdcba8131cb1",
+          "action_ref": "aps:action:cycles-test-001",
+          "delegation_ref": "aps:delegation:cycles-test-001"
+        },
+        "issued_at": "2026-10-14T23:40:51.629Z",
+        "timestamp": "2026-10-14T23:40:51.629Z",
+        "scope_of_claim": {
+          "asserts": "aps:cycles.permit:emit — a budget reservation was authorized on the Cycles rail under the named delegation; reservation_id anchors the rail-side outcome and cycles_evidence binds to the signed CyclesEvidence envelope.",
+          "does_not_assert": [
+            "the reservation was committed",
+            "the action governed by the reservation completed",
+            "live ledger state at any time after issuance"
+          ],
+          "capture_mode": "gateway_observed",
+          "completeness": "complete",
+          "self_attested": false
+        },
+        "signature": "0f7044a0eb716f184e108e66594277c55b676946b84a73e3d427b28635cf4f6d1cdeafe263b3e613551002b4474b6b3b61000a76b63a746e7693cb31e035cb0a"
+      },
+      "envelope": {
+        "artifact_type": "commit",
+        "evidence_id": "f8ebfb3918bcc3d610d80d56f649c3a8721a0e5d5ab650471f65bdcba8131cb1",
+        "issued_at_ms": 1810000010000,
+        "payload": {
+          "commit": {
+            "request": {
+              "actual": {
+                "amount": 1750000,
+                "unit": "USD_MICROCENTS"
+              },
+              "idempotency_key": "01HZZ8N4F8FBQX5K6TGYR0M0A4"
+            },
+            "reservation_id": "rsv_01HZZ8N4F8FBQX5K6TGYR0M0A3",
+            "response": {
+              "balances": [
+                {
+                  "remaining": {
+                    "amount": 8250000,
+                    "unit": "USD_MICROCENTS"
+                  },
+                  "reserved": {
+                    "amount": 0,
+                    "unit": "USD_MICROCENTS"
+                  },
+                  "scope": "tenant",
+                  "scope_path": "tenant=acme",
+                  "spent": {
+                    "amount": 1750000,
+                    "unit": "USD_MICROCENTS"
+                  }
+                }
+              ],
+              "charged": {
+                "amount": 1750000,
+                "unit": "USD_MICROCENTS"
+              },
+              "released": {
+                "amount": 250000,
+                "unit": "USD_MICROCENTS"
+              },
+              "status": "COMMITTED"
+            }
+          }
+        },
+        "schema_version": "cycles-evidence/v0.1",
+        "server_id": "https://cycles.example.com/v1",
+        "signature": "a770949651ed1870c47c254338c42060bd69e4f23e98ccdc2e35829a7c30b2dcf66f5784936e33ab679740806d4963af59fb487bcc21ea2d59d9a3e9e41f7804",
+        "signer_did": "ec52b49b81eb29ef6f62947cade245c715bf943b7ef2a5f2789288574466fc43",
+        "trace_id": "0af7651916cd43dd8448eb211c80319c"
+      },
+      "expected": {
+        "valid": false,
+        "reason": "EVIDENCE_CORRESPONDENCE_MISMATCH",
+        "detail_prefix": "artifact_type"
+      }
+    },
+    {
+      "id": "permit-wrong-reservation-commit-envelope",
+      "description": "The reported probe: a permit naming WRONG-RESERVATION citing a commit envelope.",
+      "verifier": "permit",
+      "receipt": {
+        "claim_type": "rail.budget_reservation.permit.v1",
+        "receipt_id": "cycles_permit_93982664-427f-4b5e-b0cc-91c2ae431f3c",
+        "signer": "c0b5ff6f909608448ec0e2bcbc5e5755d4d5031038f955af1e9f4123aeb14e41",
+        "agent_id": "agent-cycles-001",
+        "delegation_ref": "aps:delegation:cycles-001",
+        "action_ref": "aps:action:cycles-001",
+        "rail_name": "cycles",
+        "reservation_id": "WRONG-RESERVATION",
+        "reserved": {
+          "unit": "USD_MICROCENTS",
+          "amount": 2000000
+        },
+        "decision": "ALLOW",
+        "cycles_evidence": {
+          "cycles_evidence_url": "https://cycles.example.com/v1/evidence/abc",
+          "cycles_evidence_id_sha256": "f8ebfb3918bcc3d610d80d56f649c3a8721a0e5d5ab650471f65bdcba8131cb1",
+          "action_ref": "aps:action:cycles-test-001",
+          "delegation_ref": "aps:delegation:cycles-test-001"
+        },
+        "issued_at": "2026-10-14T23:40:51.629Z",
+        "timestamp": "2026-10-14T23:40:51.629Z",
+        "scope_of_claim": {
+          "asserts": "aps:cycles.permit:emit — a budget reservation was authorized on the Cycles rail under the named delegation; reservation_id anchors the rail-side outcome and cycles_evidence binds to the signed CyclesEvidence envelope.",
+          "does_not_assert": [
+            "the reservation was committed",
+            "the action governed by the reservation completed",
+            "live ledger state at any time after issuance"
+          ],
+          "capture_mode": "gateway_observed",
+          "completeness": "complete",
+          "self_attested": false
+        },
+        "signature": "28e6476aab00b13bed2c5f0df502d2265e67bde210ff4a5f5af3cc62d3d0789fdfa85d7c4c7f8ff95c5298ea934bd163a5cb57adc9f15d191db47b5992b79007"
+      },
+      "envelope": {
+        "artifact_type": "commit",
+        "evidence_id": "f8ebfb3918bcc3d610d80d56f649c3a8721a0e5d5ab650471f65bdcba8131cb1",
+        "issued_at_ms": 1810000010000,
+        "payload": {
+          "commit": {
+            "request": {
+              "actual": {
+                "amount": 1750000,
+                "unit": "USD_MICROCENTS"
+              },
+              "idempotency_key": "01HZZ8N4F8FBQX5K6TGYR0M0A4"
+            },
+            "reservation_id": "rsv_01HZZ8N4F8FBQX5K6TGYR0M0A3",
+            "response": {
+              "balances": [
+                {
+                  "remaining": {
+                    "amount": 8250000,
+                    "unit": "USD_MICROCENTS"
+                  },
+                  "reserved": {
+                    "amount": 0,
+                    "unit": "USD_MICROCENTS"
+                  },
+                  "scope": "tenant",
+                  "scope_path": "tenant=acme",
+                  "spent": {
+                    "amount": 1750000,
+                    "unit": "USD_MICROCENTS"
+                  }
+                }
+              ],
+              "charged": {
+                "amount": 1750000,
+                "unit": "USD_MICROCENTS"
+              },
+              "released": {
+                "amount": 250000,
+                "unit": "USD_MICROCENTS"
+              },
+              "status": "COMMITTED"
+            }
+          }
+        },
+        "schema_version": "cycles-evidence/v0.1",
+        "server_id": "https://cycles.example.com/v1",
+        "signature": "a770949651ed1870c47c254338c42060bd69e4f23e98ccdc2e35829a7c30b2dcf66f5784936e33ab679740806d4963af59fb487bcc21ea2d59d9a3e9e41f7804",
+        "signer_did": "ec52b49b81eb29ef6f62947cade245c715bf943b7ef2a5f2789288574466fc43",
+        "trace_id": "0af7651916cd43dd8448eb211c80319c"
+      },
+      "expected": {
+        "valid": false,
+        "reason": "EVIDENCE_CORRESPONDENCE_MISMATCH",
+        "detail_prefix": "artifact_type"
+      }
+    },
+    {
+      "id": "permit-reserve-envelope-without-reservation-id",
+      "description": "Reserve envelope with no reservation_id, re-signed so hash and signature hold.",
+      "verifier": "permit",
+      "receipt": {
+        "claim_type": "rail.budget_reservation.permit.v1",
+        "receipt_id": "cycles_permit_b6255937-a6a7-43b0-a262-c0f8ef8ff3f2",
+        "signer": "c0b5ff6f909608448ec0e2bcbc5e5755d4d5031038f955af1e9f4123aeb14e41",
+        "agent_id": "agent-cycles-001",
+        "delegation_ref": "aps:delegation:cycles-001",
+        "action_ref": "aps:action:cycles-001",
+        "rail_name": "cycles",
+        "reservation_id": "rsv_01HZZ8N4F8FBQX5K6TGYR0M0A3",
+        "reserved": {
+          "unit": "USD_MICROCENTS",
+          "amount": 2000000
+        },
+        "decision": "ALLOW",
+        "cycles_evidence": {
+          "cycles_evidence_url": "https://cycles.example.com/v1/evidence/abc",
+          "cycles_evidence_id_sha256": "f8b7b9209bd00f1985014af2e97d93fda8955078ddee017a63a5bf007c20cc4c",
+          "action_ref": "aps:action:cycles-test-001",
+          "delegation_ref": "aps:delegation:cycles-test-001"
+        },
+        "issued_at": "2026-10-14T23:40:51.630Z",
+        "timestamp": "2026-10-14T23:40:51.630Z",
+        "scope_of_claim": {
+          "asserts": "aps:cycles.permit:emit — a budget reservation was authorized on the Cycles rail under the named delegation; reservation_id anchors the rail-side outcome and cycles_evidence binds to the signed CyclesEvidence envelope.",
+          "does_not_assert": [
+            "the reservation was committed",
+            "the action governed by the reservation completed",
+            "live ledger state at any time after issuance"
+          ],
+          "capture_mode": "gateway_observed",
+          "completeness": "complete",
+          "self_attested": false
+        },
+        "signature": "a9b32a15e827b70b7c423d21d186445630e59485d088ff3d959201ec3530d2b3b15d3a13b5c39465d8c716b9db2a09d51f36844cfc9f1dab6db62ae2f1564d0a"
+      },
+      "envelope": {
+        "artifact_type": "reserve",
+        "evidence_id": "f8b7b9209bd00f1985014af2e97d93fda8955078ddee017a63a5bf007c20cc4c",
+        "issued_at_ms": 1810000000100,
+        "payload": {
+          "reserve": {
+            "request": {
+              "action": {
+                "kind": "model.call",
+                "name": "gpt-4o"
+              },
+              "estimate": {
+                "amount": 2000000,
+                "unit": "USD_MICROCENTS"
+              },
+              "idempotency_key": "01HZZ8N4F8FBQX5K6TGYR0M0A2",
+              "subject": {
+                "agent": "researcher",
+                "tenant": "acme"
+              },
+              "ttl_ms": 30000
+            },
+            "response": {
+              "affected_scopes": [
+                "tenant"
+              ],
+              "balances": [
+                {
+                  "remaining": {
+                    "amount": 8000000,
+                    "unit": "USD_MICROCENTS"
+                  },
+                  "reserved": {
+                    "amount": 2000000,
+                    "unit": "USD_MICROCENTS"
+                  },
+                  "scope": "tenant",
+                  "scope_path": "tenant=acme",
+                  "spent": {
+                    "amount": 0,
+                    "unit": "USD_MICROCENTS"
+                  }
+                }
+              ],
+              "decision": "ALLOW",
+              "expires_at_ms": 1810000030100,
+              "reserved": {
+                "amount": 2000000,
+                "unit": "USD_MICROCENTS"
+              },
+              "scope_path": "tenant=acme"
+            }
+          }
+        },
+        "schema_version": "cycles-evidence/v0.1",
+        "server_id": "https://cycles.example.com/v1",
+        "signature": "7f8b1cec5b34abc929a3fcb7159ca566ee98f305698885a407b25ac7d777a8735f8a6316a11d70f1bd861f46076b17f65a30a92d131ce113ba690729e59e7904",
+        "signer_did": "e86367ca6dcb401d44208e48f140c84064996fa5db8dc4050e7d55c13bfda4c0",
+        "trace_id": "0af7651916cd43dd8448eb211c80319c"
+      },
+      "expected": {
+        "valid": false,
+        "reason": "EVIDENCE_CORRESPONDENCE_FIELD_MISSING",
+        "detail_prefix": "payload.reserve.response.reservation_id"
+      }
+    },
+    {
+      "id": "permit-envelope-without-artifact-type",
+      "description": "Envelope with no artifact_type, re-signed so hash and signature hold.",
+      "verifier": "permit",
+      "receipt": {
+        "claim_type": "rail.budget_reservation.permit.v1",
+        "receipt_id": "cycles_permit_36b05069-177d-4e28-83ba-1423e5a3a46c",
+        "signer": "c0b5ff6f909608448ec0e2bcbc5e5755d4d5031038f955af1e9f4123aeb14e41",
+        "agent_id": "agent-cycles-001",
+        "delegation_ref": "aps:delegation:cycles-001",
+        "action_ref": "aps:action:cycles-001",
+        "rail_name": "cycles",
+        "reservation_id": "rsv_01HZZ8N4F8FBQX5K6TGYR0M0A3",
+        "reserved": {
+          "unit": "USD_MICROCENTS",
+          "amount": 2000000
+        },
+        "decision": "ALLOW",
+        "cycles_evidence": {
+          "cycles_evidence_url": "https://cycles.example.com/v1/evidence/abc",
+          "cycles_evidence_id_sha256": "c8bb499c5c39205049bf46d975cd0a34a0983c1f8326524d5ca5f6f1fa568407",
+          "action_ref": "aps:action:cycles-test-001",
+          "delegation_ref": "aps:delegation:cycles-test-001"
+        },
+        "issued_at": "2026-10-14T23:40:51.630Z",
+        "timestamp": "2026-10-14T23:40:51.630Z",
+        "scope_of_claim": {
+          "asserts": "aps:cycles.permit:emit — a budget reservation was authorized on the Cycles rail under the named delegation; reservation_id anchors the rail-side outcome and cycles_evidence binds to the signed CyclesEvidence envelope.",
+          "does_not_assert": [
+            "the reservation was committed",
+            "the action governed by the reservation completed",
+            "live ledger state at any time after issuance"
+          ],
+          "capture_mode": "gateway_observed",
+          "completeness": "complete",
+          "self_attested": false
+        },
+        "signature": "7b95613b31839e5ebbfc62a0fa3179fa18ce4aaea1ab7b702c9e3545e14b21486bd72f755bd6f14a2b8814264e7830c90991eb2d19eae0a904e32251f8fc4a0a"
+      },
+      "envelope": {
+        "evidence_id": "c8bb499c5c39205049bf46d975cd0a34a0983c1f8326524d5ca5f6f1fa568407",
+        "issued_at_ms": 1810000000100,
+        "payload": {
+          "reserve": {
+            "request": {
+              "action": {
+                "kind": "model.call",
+                "name": "gpt-4o"
+              },
+              "estimate": {
+                "amount": 2000000,
+                "unit": "USD_MICROCENTS"
+              },
+              "idempotency_key": "01HZZ8N4F8FBQX5K6TGYR0M0A2",
+              "subject": {
+                "agent": "researcher",
+                "tenant": "acme"
+              },
+              "ttl_ms": 30000
+            },
+            "response": {
+              "affected_scopes": [
+                "tenant"
+              ],
+              "balances": [
+                {
+                  "remaining": {
+                    "amount": 8000000,
+                    "unit": "USD_MICROCENTS"
+                  },
+                  "reserved": {
+                    "amount": 2000000,
+                    "unit": "USD_MICROCENTS"
+                  },
+                  "scope": "tenant",
+                  "scope_path": "tenant=acme",
+                  "spent": {
+                    "amount": 0,
+                    "unit": "USD_MICROCENTS"
+                  }
+                }
+              ],
+              "decision": "ALLOW",
+              "expires_at_ms": 1810000030100,
+              "reservation_id": "rsv_01HZZ8N4F8FBQX5K6TGYR0M0A3",
+              "reserved": {
+                "amount": 2000000,
+                "unit": "USD_MICROCENTS"
+              },
+              "scope_path": "tenant=acme"
+            }
+          }
+        },
+        "schema_version": "cycles-evidence/v0.1",
+        "server_id": "https://cycles.example.com/v1",
+        "signature": "069c6dd154bda2e903a98cd144ccb5f039c182bbdff1187b2d32c401f96a7cc5f13d0d3733055def67aeebba26b88d7ffaa93218921e7c6003fe8265a202bb0d",
+        "signer_did": "e86367ca6dcb401d44208e48f140c84064996fa5db8dc4050e7d55c13bfda4c0",
+        "trace_id": "0af7651916cd43dd8448eb211c80319c"
+      },
+      "expected": {
+        "valid": false,
+        "reason": "EVIDENCE_CORRESPONDENCE_FIELD_MISSING",
+        "detail_prefix": "artifact_type"
+      }
+    },
+    {
+      "id": "permit-reserve-type-commit-payload",
+      "description": "artifact_type says reserve but the payload is a commit, re-signed so hash and signature hold.",
+      "verifier": "permit",
+      "receipt": {
+        "claim_type": "rail.budget_reservation.permit.v1",
+        "receipt_id": "cycles_permit_1cca92f4-8a3c-4159-90d4-d83ccef5c3ec",
+        "signer": "c0b5ff6f909608448ec0e2bcbc5e5755d4d5031038f955af1e9f4123aeb14e41",
+        "agent_id": "agent-cycles-001",
+        "delegation_ref": "aps:delegation:cycles-001",
+        "action_ref": "aps:action:cycles-001",
+        "rail_name": "cycles",
+        "reservation_id": "rsv_01HZZ8N4F8FBQX5K6TGYR0M0A3",
+        "reserved": {
+          "unit": "USD_MICROCENTS",
+          "amount": 2000000
+        },
+        "decision": "ALLOW",
+        "cycles_evidence": {
+          "cycles_evidence_url": "https://cycles.example.com/v1/evidence/abc",
+          "cycles_evidence_id_sha256": "d9fc68e1d7616d159e02a0e4e3b71bfabaf84c2f407f6a36de52a2a8a495307e",
+          "action_ref": "aps:action:cycles-test-001",
+          "delegation_ref": "aps:delegation:cycles-test-001"
+        },
+        "issued_at": "2026-10-14T23:40:51.631Z",
+        "timestamp": "2026-10-14T23:40:51.631Z",
+        "scope_of_claim": {
+          "asserts": "aps:cycles.permit:emit — a budget reservation was authorized on the Cycles rail under the named delegation; reservation_id anchors the rail-side outcome and cycles_evidence binds to the signed CyclesEvidence envelope.",
+          "does_not_assert": [
+            "the reservation was committed",
+            "the action governed by the reservation completed",
+            "live ledger state at any time after issuance"
+          ],
+          "capture_mode": "gateway_observed",
+          "completeness": "complete",
+          "self_attested": false
+        },
+        "signature": "2e5b6e1f04e19de7effed61ab28e9b4629cbf17fc2d01f37321f5a5dbec17f7e80fa34fda2c1c39b9257080b7c4f2b4926701a0ec57aace5ed5ecf079d67e702"
+      },
+      "envelope": {
+        "artifact_type": "reserve",
+        "evidence_id": "d9fc68e1d7616d159e02a0e4e3b71bfabaf84c2f407f6a36de52a2a8a495307e",
+        "issued_at_ms": 1810000000100,
+        "payload": {
+          "commit": {
+            "request": {
+              "actual": {
+                "amount": 1750000,
+                "unit": "USD_MICROCENTS"
+              },
+              "idempotency_key": "01HZZ8N4F8FBQX5K6TGYR0M0A4"
+            },
+            "reservation_id": "rsv_01HZZ8N4F8FBQX5K6TGYR0M0A3",
+            "response": {
+              "balances": [
+                {
+                  "remaining": {
+                    "amount": 8250000,
+                    "unit": "USD_MICROCENTS"
+                  },
+                  "reserved": {
+                    "amount": 0,
+                    "unit": "USD_MICROCENTS"
+                  },
+                  "scope": "tenant",
+                  "scope_path": "tenant=acme",
+                  "spent": {
+                    "amount": 1750000,
+                    "unit": "USD_MICROCENTS"
+                  }
+                }
+              ],
+              "charged": {
+                "amount": 1750000,
+                "unit": "USD_MICROCENTS"
+              },
+              "released": {
+                "amount": 250000,
+                "unit": "USD_MICROCENTS"
+              },
+              "status": "COMMITTED"
+            }
+          }
+        },
+        "schema_version": "cycles-evidence/v0.1",
+        "server_id": "https://cycles.example.com/v1",
+        "signature": "24e61868ae6f10b252559660c1fe0fe1d882424eb51776196494a775f37852df51918d25698c09b324495d302bad464b6293b0a14883fac3001cef2b8296a709",
+        "signer_did": "e86367ca6dcb401d44208e48f140c84064996fa5db8dc4050e7d55c13bfda4c0",
+        "trace_id": "0af7651916cd43dd8448eb211c80319c"
+      },
+      "expected": {
+        "valid": false,
+        "reason": "EVIDENCE_CORRESPONDENCE_MISMATCH",
+        "detail_prefix": "payload"
+      }
+    },
+    {
+      "id": "release-own-release",
+      "description": "Release citing the release envelope of its own reservation.",
+      "verifier": "release",
+      "receipt": {
+        "claim_type": "rail.budget_reservation.release.v1",
+        "receipt_id": "cycles_release_baaebc36-a18d-4d4b-8ca0-b7c0282069d8",
+        "signer": "c0b5ff6f909608448ec0e2bcbc5e5755d4d5031038f955af1e9f4123aeb14e41",
+        "agent_id": "agent-cycles-001",
+        "delegation_ref": "aps:delegation:cycles-001",
+        "action_ref": "aps:action:cycles-001",
+        "rail_name": "cycles",
+        "reservation_id": "rsv_01HZZ8N4F8FBQX5K6TGYR0M0C2",
+        "released": {
+          "unit": "TOKENS",
+          "amount": 8000
+        },
+        "cycles_evidence": {
+          "cycles_evidence_url": "https://cycles.example.com/v1/evidence/abc",
+          "cycles_evidence_id_sha256": "d2ef1a25d7c79d9ef0df421dd12b6874424ba3c8af2488da2bd8f705926d09fd",
+          "action_ref": "aps:action:cycles-test-001",
+          "delegation_ref": "aps:delegation:cycles-test-001"
+        },
+        "issued_at": "2026-10-14T23:40:51.631Z",
+        "timestamp": "2026-10-14T23:40:51.631Z",
+        "scope_of_claim": {
+          "asserts": "aps:cycles.release:emit — a budget reservation was released without commit under the named delegation; reservation_id ties to the prior permit-receipt.",
+          "does_not_assert": [
+            "the underlying action was cancelled (the reason field, when populated, is rail-reported)",
+            "no separate commit occurred on a different reservation"
+          ],
+          "capture_mode": "gateway_observed",
+          "completeness": "complete",
+          "self_attested": false
+        },
+        "signature": "53a4391c6face0d8da05972dfd83a58829d0236e8364f1672a58aa370d65ece636953584643f3bb4de23a1f6d1d1052a65a08397bf20dafc693e9e4d0b5d3f0a"
+      },
+      "envelope": {
+        "artifact_type": "release",
+        "evidence_id": "d2ef1a25d7c79d9ef0df421dd12b6874424ba3c8af2488da2bd8f705926d09fd",
+        "issued_at_ms": 1810000005000,
+        "payload": {
+          "release": {
+            "request": {
+              "idempotency_key": "01HZZ8N4F8FBQX5K6TGYR0M0C3"
+            },
+            "reservation_id": "rsv_01HZZ8N4F8FBQX5K6TGYR0M0C2",
+            "response": {
+              "balances": [
+                {
+                  "remaining": {
+                    "amount": 100000,
+                    "unit": "TOKENS"
+                  },
+                  "reserved": {
+                    "amount": 0,
+                    "unit": "TOKENS"
+                  },
+                  "scope": "tenant",
+                  "scope_path": "tenant=acme",
+                  "spent": {
+                    "amount": 0,
+                    "unit": "TOKENS"
+                  }
+                }
+              ],
+              "released": {
+                "amount": 8000,
+                "unit": "TOKENS"
+              },
+              "status": "RELEASED"
+            }
+          }
+        },
+        "schema_version": "cycles-evidence/v0.1",
+        "server_id": "https://cycles.example.com/v1",
+        "signature": "11d67308e68441f7ca8ff3c3d5087604969b24dcd8cfb67abbed9c05027d71716c01a3f5f2162f4bac7e4d9038816516a423c511fb39e557266ed8ab9e031d02",
+        "signer_did": "ec52b49b81eb29ef6f62947cade245c715bf943b7ef2a5f2789288574466fc43",
+        "trace_id": "d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6"
+      },
+      "expected": {
+        "valid": true,
+        "evidence_authenticity": "signature_valid"
+      }
+    },
+    {
+      "id": "release-other-reservation",
+      "description": "Release naming another reservation, citing a release envelope.",
+      "verifier": "release",
+      "receipt": {
+        "claim_type": "rail.budget_reservation.release.v1",
+        "receipt_id": "cycles_release_71347067-7de0-49a9-bd8d-c7882a2bb55a",
+        "signer": "c0b5ff6f909608448ec0e2bcbc5e5755d4d5031038f955af1e9f4123aeb14e41",
+        "agent_id": "agent-cycles-001",
+        "delegation_ref": "aps:delegation:cycles-001",
+        "action_ref": "aps:action:cycles-001",
+        "rail_name": "cycles",
+        "reservation_id": "rsv_some_other_reservation",
+        "released": {
+          "unit": "TOKENS",
+          "amount": 8000
+        },
+        "cycles_evidence": {
+          "cycles_evidence_url": "https://cycles.example.com/v1/evidence/abc",
+          "cycles_evidence_id_sha256": "d2ef1a25d7c79d9ef0df421dd12b6874424ba3c8af2488da2bd8f705926d09fd",
+          "action_ref": "aps:action:cycles-test-001",
+          "delegation_ref": "aps:delegation:cycles-test-001"
+        },
+        "issued_at": "2026-10-14T23:40:51.631Z",
+        "timestamp": "2026-10-14T23:40:51.631Z",
+        "scope_of_claim": {
+          "asserts": "aps:cycles.release:emit — a budget reservation was released without commit under the named delegation; reservation_id ties to the prior permit-receipt.",
+          "does_not_assert": [
+            "the underlying action was cancelled (the reason field, when populated, is rail-reported)",
+            "no separate commit occurred on a different reservation"
+          ],
+          "capture_mode": "gateway_observed",
+          "completeness": "complete",
+          "self_attested": false
+        },
+        "signature": "2ab3c5f978505adf3c2ef16c85a20b77163067423e0730c04311d43af9f9288814c85156d1558ade9f3cd51911994333f8638bc56b0a4a28217d0e99b5367506"
+      },
+      "envelope": {
+        "artifact_type": "release",
+        "evidence_id": "d2ef1a25d7c79d9ef0df421dd12b6874424ba3c8af2488da2bd8f705926d09fd",
+        "issued_at_ms": 1810000005000,
+        "payload": {
+          "release": {
+            "request": {
+              "idempotency_key": "01HZZ8N4F8FBQX5K6TGYR0M0C3"
+            },
+            "reservation_id": "rsv_01HZZ8N4F8FBQX5K6TGYR0M0C2",
+            "response": {
+              "balances": [
+                {
+                  "remaining": {
+                    "amount": 100000,
+                    "unit": "TOKENS"
+                  },
+                  "reserved": {
+                    "amount": 0,
+                    "unit": "TOKENS"
+                  },
+                  "scope": "tenant",
+                  "scope_path": "tenant=acme",
+                  "spent": {
+                    "amount": 0,
+                    "unit": "TOKENS"
+                  }
+                }
+              ],
+              "released": {
+                "amount": 8000,
+                "unit": "TOKENS"
+              },
+              "status": "RELEASED"
+            }
+          }
+        },
+        "schema_version": "cycles-evidence/v0.1",
+        "server_id": "https://cycles.example.com/v1",
+        "signature": "11d67308e68441f7ca8ff3c3d5087604969b24dcd8cfb67abbed9c05027d71716c01a3f5f2162f4bac7e4d9038816516a423c511fb39e557266ed8ab9e031d02",
+        "signer_did": "ec52b49b81eb29ef6f62947cade245c715bf943b7ef2a5f2789288574466fc43",
+        "trace_id": "d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6"
+      },
+      "expected": {
+        "valid": false,
+        "reason": "EVIDENCE_CORRESPONDENCE_MISMATCH",
+        "detail_prefix": "reservation_id"
+      }
+    },
+    {
+      "id": "release-commit-envelope",
+      "description": "Release citing a commit envelope.",
+      "verifier": "release",
+      "receipt": {
+        "claim_type": "rail.budget_reservation.release.v1",
+        "receipt_id": "cycles_release_e3b6045c-d1f2-4497-bd05-0c6285710f72",
+        "signer": "c0b5ff6f909608448ec0e2bcbc5e5755d4d5031038f955af1e9f4123aeb14e41",
+        "agent_id": "agent-cycles-001",
+        "delegation_ref": "aps:delegation:cycles-001",
+        "action_ref": "aps:action:cycles-001",
+        "rail_name": "cycles",
+        "reservation_id": "rsv_01HZZ8N4F8FBQX5K6TGYR0M0A3",
+        "released": {
+          "unit": "TOKENS",
+          "amount": 8000
+        },
+        "cycles_evidence": {
+          "cycles_evidence_url": "https://cycles.example.com/v1/evidence/abc",
+          "cycles_evidence_id_sha256": "f8ebfb3918bcc3d610d80d56f649c3a8721a0e5d5ab650471f65bdcba8131cb1",
+          "action_ref": "aps:action:cycles-test-001",
+          "delegation_ref": "aps:delegation:cycles-test-001"
+        },
+        "issued_at": "2026-10-14T23:40:51.631Z",
+        "timestamp": "2026-10-14T23:40:51.631Z",
+        "scope_of_claim": {
+          "asserts": "aps:cycles.release:emit — a budget reservation was released without commit under the named delegation; reservation_id ties to the prior permit-receipt.",
+          "does_not_assert": [
+            "the underlying action was cancelled (the reason field, when populated, is rail-reported)",
+            "no separate commit occurred on a different reservation"
+          ],
+          "capture_mode": "gateway_observed",
+          "completeness": "complete",
+          "self_attested": false
+        },
+        "signature": "304ace09b581b3612bc702e1f285107985cbb2844fc85e25d593a164fd41945e4061db439586014e54b908785d195d1ab95987efade3efc3dc71f58b3fe1f402"
+      },
+      "envelope": {
+        "artifact_type": "commit",
+        "evidence_id": "f8ebfb3918bcc3d610d80d56f649c3a8721a0e5d5ab650471f65bdcba8131cb1",
+        "issued_at_ms": 1810000010000,
+        "payload": {
+          "commit": {
+            "request": {
+              "actual": {
+                "amount": 1750000,
+                "unit": "USD_MICROCENTS"
+              },
+              "idempotency_key": "01HZZ8N4F8FBQX5K6TGYR0M0A4"
+            },
+            "reservation_id": "rsv_01HZZ8N4F8FBQX5K6TGYR0M0A3",
+            "response": {
+              "balances": [
+                {
+                  "remaining": {
+                    "amount": 8250000,
+                    "unit": "USD_MICROCENTS"
+                  },
+                  "reserved": {
+                    "amount": 0,
+                    "unit": "USD_MICROCENTS"
+                  },
+                  "scope": "tenant",
+                  "scope_path": "tenant=acme",
+                  "spent": {
+                    "amount": 1750000,
+                    "unit": "USD_MICROCENTS"
+                  }
+                }
+              ],
+              "charged": {
+                "amount": 1750000,
+                "unit": "USD_MICROCENTS"
+              },
+              "released": {
+                "amount": 250000,
+                "unit": "USD_MICROCENTS"
+              },
+              "status": "COMMITTED"
+            }
+          }
+        },
+        "schema_version": "cycles-evidence/v0.1",
+        "server_id": "https://cycles.example.com/v1",
+        "signature": "a770949651ed1870c47c254338c42060bd69e4f23e98ccdc2e35829a7c30b2dcf66f5784936e33ab679740806d4963af59fb487bcc21ea2d59d9a3e9e41f7804",
+        "signer_did": "ec52b49b81eb29ef6f62947cade245c715bf943b7ef2a5f2789288574466fc43",
+        "trace_id": "0af7651916cd43dd8448eb211c80319c"
+      },
+      "expected": {
+        "valid": false,
+        "reason": "EVIDENCE_CORRESPONDENCE_MISMATCH",
+        "detail_prefix": "artifact_type"
+      }
+    },
+    {
+      "id": "release-envelope-without-reservation-id",
+      "description": "Release envelope with no reservation_id, re-signed so hash and signature hold.",
+      "verifier": "release",
+      "receipt": {
+        "claim_type": "rail.budget_reservation.release.v1",
+        "receipt_id": "cycles_release_a8562c98-b7d3-4d7e-9b3f-f04a4d4bd236",
+        "signer": "c0b5ff6f909608448ec0e2bcbc5e5755d4d5031038f955af1e9f4123aeb14e41",
+        "agent_id": "agent-cycles-001",
+        "delegation_ref": "aps:delegation:cycles-001",
+        "action_ref": "aps:action:cycles-001",
+        "rail_name": "cycles",
+        "reservation_id": "rsv_01HZZ8N4F8FBQX5K6TGYR0M0C2",
+        "released": {
+          "unit": "TOKENS",
+          "amount": 8000
+        },
+        "cycles_evidence": {
+          "cycles_evidence_url": "https://cycles.example.com/v1/evidence/abc",
+          "cycles_evidence_id_sha256": "93462f9897a045c66e21962154f293894fcedb4379458ee3e05125d33f7abda8",
+          "action_ref": "aps:action:cycles-test-001",
+          "delegation_ref": "aps:delegation:cycles-test-001"
+        },
+        "issued_at": "2026-10-14T23:40:51.632Z",
+        "timestamp": "2026-10-14T23:40:51.632Z",
+        "scope_of_claim": {
+          "asserts": "aps:cycles.release:emit — a budget reservation was released without commit under the named delegation; reservation_id ties to the prior permit-receipt.",
+          "does_not_assert": [
+            "the underlying action was cancelled (the reason field, when populated, is rail-reported)",
+            "no separate commit occurred on a different reservation"
+          ],
+          "capture_mode": "gateway_observed",
+          "completeness": "complete",
+          "self_attested": false
+        },
+        "signature": "46c37fd499f98ab9b6fb5a029fc9e1de9007cb256bff72bd28fe34d35efb31d078d7a0bd5dda577fdc0ea9278e78cddfa0e027ae642b8c0c499285baea585005"
+      },
+      "envelope": {
+        "artifact_type": "release",
+        "evidence_id": "93462f9897a045c66e21962154f293894fcedb4379458ee3e05125d33f7abda8",
+        "issued_at_ms": 1810000005000,
+        "payload": {
+          "release": {
+            "request": {
+              "idempotency_key": "01HZZ8N4F8FBQX5K6TGYR0M0C3"
+            },
+            "response": {
+              "balances": [
+                {
+                  "remaining": {
+                    "amount": 100000,
+                    "unit": "TOKENS"
+                  },
+                  "reserved": {
+                    "amount": 0,
+                    "unit": "TOKENS"
+                  },
+                  "scope": "tenant",
+                  "scope_path": "tenant=acme",
+                  "spent": {
+                    "amount": 0,
+                    "unit": "TOKENS"
+                  }
+                }
+              ],
+              "released": {
+                "amount": 8000,
+                "unit": "TOKENS"
+              },
+              "status": "RELEASED"
+            }
+          }
+        },
+        "schema_version": "cycles-evidence/v0.1",
+        "server_id": "https://cycles.example.com/v1",
+        "signature": "735f8e5c40d59b3b96f28d05f9efc52469c2d3558b87d6dff5a2ab1b21e05b905f283a6b1d14243dbb1e3917d54a34aa407d4da8ba2e59e9ef757c84de137204",
+        "signer_did": "e86367ca6dcb401d44208e48f140c84064996fa5db8dc4050e7d55c13bfda4c0",
+        "trace_id": "d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6"
+      },
+      "expected": {
+        "valid": false,
+        "reason": "EVIDENCE_CORRESPONDENCE_FIELD_MISSING",
+        "detail_prefix": "payload.release.reservation_id"
+      }
+    },
+    {
+      "id": "hash-check-runs-first",
+      "description": "Tampered envelope: the hash check fails before correspondence is considered.",
+      "verifier": "permit",
+      "receipt": {
+        "claim_type": "rail.budget_reservation.permit.v1",
+        "receipt_id": "cycles_permit_d5aa202d-7b70-4a31-a588-7e5d2f285d68",
+        "signer": "c0b5ff6f909608448ec0e2bcbc5e5755d4d5031038f955af1e9f4123aeb14e41",
+        "agent_id": "agent-cycles-001",
+        "delegation_ref": "aps:delegation:cycles-001",
+        "action_ref": "aps:action:cycles-001",
+        "rail_name": "cycles",
+        "reservation_id": "rsv_some_other_reservation",
+        "reserved": {
+          "unit": "USD_MICROCENTS",
+          "amount": 2000000
+        },
+        "decision": "ALLOW",
+        "cycles_evidence": {
+          "cycles_evidence_url": "https://cycles.example.com/v1/evidence/abc",
+          "cycles_evidence_id_sha256": "ca70a9c6816d463614ec46b19266ff286bde220c2caf0951ae7888cc36c485aa",
+          "action_ref": "aps:action:cycles-test-001",
+          "delegation_ref": "aps:delegation:cycles-test-001"
+        },
+        "issued_at": "2026-10-14T23:40:51.632Z",
+        "timestamp": "2026-10-14T23:40:51.632Z",
+        "scope_of_claim": {
+          "asserts": "aps:cycles.permit:emit — a budget reservation was authorized on the Cycles rail under the named delegation; reservation_id anchors the rail-side outcome and cycles_evidence binds to the signed CyclesEvidence envelope.",
+          "does_not_assert": [
+            "the reservation was committed",
+            "the action governed by the reservation completed",
+            "live ledger state at any time after issuance"
+          ],
+          "capture_mode": "gateway_observed",
+          "completeness": "complete",
+          "self_attested": false
+        },
+        "signature": "66d1e712cdbf8a9084d392ea636d72dacbfbdc36ef5a0975c63afb50c36f4b1c3c41a8bf5630753c5023c1cdeceb20471251d4efd41cca727577b5510050f404"
+      },
+      "envelope": {
+        "artifact_type": "reserve",
+        "evidence_id": "ca70a9c6816d463614ec46b19266ff286bde220c2caf0951ae7888cc36c485aa",
+        "issued_at_ms": 1810000000100,
+        "payload": {
+          "reserve": {
+            "request": {
+              "action": {
+                "kind": "model.call",
+                "name": "gpt-4o"
+              },
+              "estimate": {
+                "amount": 2000000,
+                "unit": "USD_MICROCENTS"
+              },
+              "idempotency_key": "01HZZ8N4F8FBQX5K6TGYR0M0A2",
+              "subject": {
+                "agent": "researcher",
+                "tenant": "acme"
+              },
+              "ttl_ms": 30000
+            },
+            "response": {
+              "affected_scopes": [
+                "tenant"
+              ],
+              "balances": [
+                {
+                  "remaining": {
+                    "amount": 8000000,
+                    "unit": "USD_MICROCENTS"
+                  },
+                  "reserved": {
+                    "amount": 2000000,
+                    "unit": "USD_MICROCENTS"
+                  },
+                  "scope": "tenant",
+                  "scope_path": "tenant=acme",
+                  "spent": {
+                    "amount": 0,
+                    "unit": "USD_MICROCENTS"
+                  }
+                }
+              ],
+              "decision": "ALLOW",
+              "expires_at_ms": 1810000030100,
+              "reservation_id": "rsv_01HZZ8N4F8FBQX5K6TGYR0M0A3",
+              "reserved": {
+                "amount": 2000000,
+                "unit": "USD_MICROCENTS"
+              },
+              "scope_path": "tenant=acme"
+            }
+          }
+        },
+        "schema_version": "cycles-evidence/v0.1",
+        "server_id": "https://evil.example.com/v1",
+        "signature": "e62228d5389b5b325f287d3f6267c64e8fcba4b374fde30a7b1e569426fc28afadacc69b7be158fc315b533e25f79ed5b21aa87a3ae30e2f37566802fd6c880e",
+        "signer_did": "ec52b49b81eb29ef6f62947cade245c715bf943b7ef2a5f2789288574466fc43",
+        "trace_id": "0af7651916cd43dd8448eb211c80319c"
+      },
+      "expected": {
+        "valid": false,
+        "reason": "EVIDENCE_REF_HASH_MISMATCH"
+      }
+    },
+    {
+      "id": "denial-not-checked",
+      "description": "Denials get no correspondence check: a denial citing a reserve envelope verifies.",
+      "verifier": "denial",
+      "receipt": {
+        "claim_type": "rail.budget_reservation.denial.v1",
+        "receipt_id": "cycles_denial_377aefd8-3a6c-422a-bd1b-667cbfd03163",
+        "signer": "c0b5ff6f909608448ec0e2bcbc5e5755d4d5031038f955af1e9f4123aeb14e41",
+        "agent_id": "agent-cycles-001",
+        "delegation_ref": "aps:delegation:cycles-001",
+        "action_ref": "aps:action:cycles-001",
+        "rail_name": "cycles",
+        "denial_reason": "spend_limit_exceeded",
+        "cycles": {
+          "denial_detail": {
+            "layer": "cycles",
+            "source": "ErrorCode",
+            "code": "BUDGET_EXCEEDED",
+            "http_status": 409,
+            "message": "Insufficient remaining budget for scope tenant=acme",
+            "request_id": "req_01HZZ8N4F8FBQX5K6TGYR0M0G2",
+            "trace_id": "0123456789abcdef0123456789abcdef"
+          }
+        },
+        "cycles_evidence": {
+          "cycles_evidence_url": "https://cycles.example.com/v1/evidence/abc",
+          "cycles_evidence_id_sha256": "ca70a9c6816d463614ec46b19266ff286bde220c2caf0951ae7888cc36c485aa",
+          "action_ref": "aps:action:cycles-test-001",
+          "delegation_ref": "aps:delegation:cycles-test-001"
+        },
+        "issued_at": "2026-10-14T23:40:51.632Z",
+        "timestamp": "2026-10-14T23:40:51.632Z",
+        "scope_of_claim": {
+          "asserts": "aps:cycles.deny:emit — a Cycles budget-authority operation was refused with a closed-taxonomy Tier-1 denial reason; cycles.denial_detail preserves the canonical Cycles-side code Tier-2.",
+          "does_not_assert": [
+            "the rail itself is unavailable",
+            "the agent acted maliciously",
+            "the underlying delegation is invalid (denial may flag a single missing constraint)"
+          ],
+          "capture_mode": "gateway_observed",
+          "completeness": "complete",
+          "self_attested": false
+        },
+        "signature": "941cb377d06378295576cd2b60b4e58edae595a274ca7db7b285b329797ec1930d857612ed622b3d00fcaff908299ef6ed3d63261605f176300fed3615de2c00"
+      },
+      "envelope": {
+        "artifact_type": "reserve",
+        "evidence_id": "ca70a9c6816d463614ec46b19266ff286bde220c2caf0951ae7888cc36c485aa",
+        "issued_at_ms": 1810000000100,
+        "payload": {
+          "reserve": {
+            "request": {
+              "action": {
+                "kind": "model.call",
+                "name": "gpt-4o"
+              },
+              "estimate": {
+                "amount": 2000000,
+                "unit": "USD_MICROCENTS"
+              },
+              "idempotency_key": "01HZZ8N4F8FBQX5K6TGYR0M0A2",
+              "subject": {
+                "agent": "researcher",
+                "tenant": "acme"
+              },
+              "ttl_ms": 30000
+            },
+            "response": {
+              "affected_scopes": [
+                "tenant"
+              ],
+              "balances": [
+                {
+                  "remaining": {
+                    "amount": 8000000,
+                    "unit": "USD_MICROCENTS"
+                  },
+                  "reserved": {
+                    "amount": 2000000,
+                    "unit": "USD_MICROCENTS"
+                  },
+                  "scope": "tenant",
+                  "scope_path": "tenant=acme",
+                  "spent": {
+                    "amount": 0,
+                    "unit": "USD_MICROCENTS"
+                  }
+                }
+              ],
+              "decision": "ALLOW",
+              "expires_at_ms": 1810000030100,
+              "reservation_id": "rsv_01HZZ8N4F8FBQX5K6TGYR0M0A3",
+              "reserved": {
+                "amount": 2000000,
+                "unit": "USD_MICROCENTS"
+              },
+              "scope_path": "tenant=acme"
+            }
+          }
+        },
+        "schema_version": "cycles-evidence/v0.1",
+        "server_id": "https://cycles.example.com/v1",
+        "signature": "e62228d5389b5b325f287d3f6267c64e8fcba4b374fde30a7b1e569426fc28afadacc69b7be158fc315b533e25f79ed5b21aa87a3ae30e2f37566802fd6c880e",
+        "signer_did": "ec52b49b81eb29ef6f62947cade245c715bf943b7ef2a5f2789288574466fc43",
+        "trace_id": "0af7651916cd43dd8448eb211c80319c"
+      },
+      "expected": {
+        "valid": true,
+        "evidence_authenticity": "signature_valid"
+      }
+    }
+  ]
+}
