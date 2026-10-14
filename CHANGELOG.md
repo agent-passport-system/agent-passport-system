@@ -1,6 +1,16 @@
 # Changelog
 
-## Unreleased
+## 8.0.0 (2026-10-14)
+
+Major release. Five changes reject inputs or change verdicts that 7.2.1 accepted or reported differently. Read MIGRATION.md before upgrading.
+
+- When an envelope is supplied or fetched, Cycles permit and release verification checks that it is the envelope of the receipt's own stage and reservation. A permit naming one reservation could cite another reservation's commit envelope and verify as valid. Without an envelope there is no correspondence check, though the new receipt shape checks still apply.
+- `verifyPassportV2` and `verifyPrincipalBindingV1` map key resolution failures to `indeterminate` or `unsupported` instead of `invalid`, and an unrecognised profile to `unsupported`. Neither function is exported from the package entry.
+- `verifyPrincipalBindingRevocationV1` applies the same mapping and no longer throws on a failed resolution.
+- `computeExternalActionRefV1` rejects a non-ASCII `agentId`, `actionType` or `scope`, and an empty `scope`. Digests of inputs that are still accepted are unchanged.
+- Delegation depth: `verifyDelegation` reports a present `maxDepth` or `currentDepth` that is not a non-negative integer as invalid instead of coercing it, and reads `maxDepth: null` as absent instead of 0. `createDelegation` refuses to sign such values, and `subDelegate` throws for a parent without a non-negative integer `maxDepth`.
+
+Also in this release: a plain-object check on resolver answers, `parseExternalActionRefV1Preimage`, frozen vectors for `aps.agent-passport` 2.0 and the Action Receipt v1.1 surface, and errata for `docs/SPEC-v1.1.md`. Details below.
 
 **BREAKING for callers passing a non-matching envelope through `options.evidence`.
 Cycles permit and release verification checks that the envelope is the event the receipt
@@ -10,7 +20,7 @@ the payload variant agreeing with `artifact_type`. A permit naming one reservati
 previously cite a commit envelope of another and verify as valid. Failures are
 `EVIDENCE_CORRESPONDENCE_FIELD_MISSING` (absent or malformed field, never a pass) or
 `EVIDENCE_CORRESPONDENCE_MISMATCH`. Amount, unit, action and server identity are not
-compared. Denials are unchanged. The `*WithEvidence` results gain an additive
+compared. Denials get no correspondence check. The `*WithEvidence` results gain an additive
 `correspondence` field for the fetched envelope. The permit and release verifiers first
 capture the receipt and any envelope as their canonical JSON, parsed into prototype-free
 records, and every check reads only that capture. A field present only as an inherited,
@@ -212,8 +222,8 @@ before are rejected now, before any digest is computed:
   specification on 2026-08-15.
 
 Removing accepted inputs from a published export is a breaking change. Per the release
-rules in AGENTS.md and CONTRIBUTING.md it ships in the next major version, with the
-migration note in [MIGRATION.md](MIGRATION.md). Merging this entry does not release it.
+rules in AGENTS.md and CONTRIBUTING.md it ships in this major version, with the
+migration note in [MIGRATION.md](MIGRATION.md).
 
 **One error marker for domain failures.** Every rejection by this helper and its parser
 now carries the literal `OUT_OF_PROFILE_DOMAIN` in its message, with the original wording

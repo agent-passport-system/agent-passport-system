@@ -1,4 +1,4 @@
-# Migration to the next major version: Cycles receipt to envelope correspondence
+# Migration to 8.0.0: Cycles receipt to envelope correspondence
 
 Correspondence applies to permit and release receipts verified with an envelope,
 supplied through `options.evidence` or fetched by the `*WithEvidence` verifiers.
@@ -89,7 +89,7 @@ fields directly, or use `Object.prototype.hasOwnProperty.call`, since it has no
   envelope's signer is authorized. When your claim needs that, also require the
   `authority` disposition you accept (for example `authentic`).
 
-# Migration to the next major version: external action-ref v1 input checks
+# Migration to 8.0.0: external action-ref v1 input checks
 
 This applies only to callers of `computeExternalActionRefV1`, the external
 cross-ecosystem `action_ref` v1 helper. The APS-native `computeActionRef` and
