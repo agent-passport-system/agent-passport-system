@@ -108,6 +108,16 @@ export interface ClaimVerificationInput {
   openContestationResolver?: OpenContestationResolver
 }
 
+/** Static check of a stated claim against the registry profile for its type.
+ *
+ *  Decisions use only `claim.type`, each entry's `recordType`, and (when a
+ *  resolver is supplied) each entry's `receiptId` as given. The contents of
+ *  `record` are never inspected and `claim.subject` is never read. An
+ *  APSBundle record is echoed back unexamined in a
+ *  `bundle_requires_inclusion_proof` result. A `valid` result therefore means
+ *  the listed record types could satisfy the claim. It does not mean the
+ *  records are authentic, signed, current, about `claim.subject`, or about
+ *  each other. Those checks belong to the caller. */
 export function verifyEvidenceClaim(input: ClaimVerificationInput): ClaimVerificationResult {
   const { claim, evidence } = input
 

@@ -1,3 +1,94 @@
+# Migration to the next major version: Cycles receipt to envelope correspondence
+
+Correspondence applies to permit and release receipts verified with an envelope,
+supplied through `options.evidence` or fetched by the `*WithEvidence` verifiers.
+Denials get no correspondence check. The receipt shape checks below apply to
+every Cycles verifier, with or without an envelope, and the evidence-result
+hardening applies to every `*WithEvidence` verifier, denials included.
+
+## What changed
+
+`verifyCyclesPermitReceipt`, `verifyCyclesReleaseReceipt` and their `WithDID`
+forms now check, after the hash binding and the envelope signature, that the
+supplied envelope is the event the receipt references:
+
+- a permit receipt needs a `reserve` envelope whose
+  `payload.reserve.response.reservation_id` equals the receipt's `reservation_id`
+- a release receipt needs a `release` envelope whose
+  `payload.release.reservation_id` equals the receipt's `reservation_id`
+- the envelope's single payload variant must agree with its `artifact_type`
+
+A previously valid result becomes `valid: false` with one of two new reasons:
+
+- `EVIDENCE_CORRESPONDENCE_FIELD_MISSING` when a field the check needs is absent
+  or malformed (the envelope's `artifact_type`, its payload variant, that
+  variant's reservation_id, or the receipt's own `reservation_id`)
+- `EVIDENCE_CORRESPONDENCE_MISMATCH` when the stage differs, the payload variant
+  disagrees with `artifact_type`, or the reservation_id differs
+
+`detail` names the field. A match means stage and reservation_id agree. Amount,
+unit, action and server identity are not compared.
+
+Permit and release verification first captures the receipt and any envelope
+as their canonical JSON, the form the hash and the signatures cover, parsed into
+prototype-free records. Every check then reads only that capture. A value
+reachable by JavaScript property lookup but absent from that form (inherited,
+non-enumerable, on `Object.prototype`, or inside a non-JSON container such as a
+`Date`) counts as missing. Which stage is required comes from the verifier you
+call, never from a field of the input.
+
+If capture fails, verification stops with a structured result and reads nothing
+further. A receipt with no canonical JSON form is `SIGNATURE_INVALID`, also when
+no envelope is supplied. A supplied envelope with none is
+`EVIDENCE_REF_HASH_MISMATCH`. A fetched envelope with none resolves as
+`malformed`. Previously such inputs could throw. Plain parsed JSON is
+unaffected.
+
+The permit and release verifiers read each supported option once, by ordinary
+property lookup as before, so options supplied through a prototype or as
+non-enumerable properties still apply. A receipt whose `cycles_evidence` or
+`scope_of_claim` is not an object is `MISSING_REQUIRED_FIELD`, and on the permit
+and release `WithEvidence` paths a non-object evidence reference is reported
+`malformed` without being resolved. The `scope_of_claim` check applies to all three receipt
+kinds.
+
+On every `WithEvidence` path, a resolver failure can only report a failure
+status (`not_found`, `unreachable` or `malformed`). Any other reported status,
+including `matched`, becomes `malformed`. Correspondence and signer authority read
+only an envelope the resolution result itself carries, and correspondence also
+requires `evidence.resolved === true`. A resolver answer counts only through its
+own properties: success needs its own `ok: true` and its own `envelope`, and a
+non-object answer is `malformed`. A key resolver answer likewise needs its own
+`ok: true` and its own string `publicKeyHex` before signer authority can be
+`authentic`, and a non-object answer is `signer_resolution_failed` rather than an
+exception. The evidence descriptor is a prototype-free object. Prototype-free objects
+(`evidence.envelope` on permit and release paths, and the descriptor) have no
+`hasOwnProperty` method and do not compare equal to ordinary objects under
+prototype-sensitive deep equality. Compare their fields instead.
+
+The `*WithEvidence` results gain a `correspondence` field evaluated on the
+fetched envelope when resolution matched. It is additive: `verify`, `evidence`
+and `authority` keep their meanings, so a receipt can verify while
+`correspondence.status` is `mismatch`. New exported type:
+`CyclesEvidenceCorrespondence`. For permit and release receipts,
+`evidence.envelope` is now the captured record that was hashed and checked, a
+new prototype-free object rather than the one your resolver returned. Read its
+fields directly, or use `Object.prototype.hasOwnProperty.call`, since it has no
+`hasOwnProperty` method of its own.
+
+## What to do
+
+- If you pass `options.evidence`, pass the envelope of the event the receipt
+  references, not a later or earlier stage of the reservation.
+- If you match on `reason`, handle the two new values.
+- If you use the `*WithEvidence` paths, `verify.valid` covers the receipt alone.
+  To accept a permit or release receipt together with its fetched envelope,
+  require `verify.valid`, `evidence.status === 'matched'` and
+  `correspondence.status === 'matched'`. For a denial, `correspondence` is always
+  `not_applicable`, so require only the first two. None of these establishes that the
+  envelope's signer is authorized. When your claim needs that, also require the
+  `authority` disposition you accept (for example `authentic`).
+
 # Migration to the next major version: external action-ref v1 input checks
 
 This applies only to callers of `computeExternalActionRefV1`, the external

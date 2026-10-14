@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+**BREAKING for callers passing a non-matching envelope through `options.evidence`.
+Cycles permit and release verification checks that the envelope is the event the receipt
+references.** After the hash binding and the envelope signature, a permit needs the
+`reserve` envelope and a release the `release` envelope for the same `reservation_id`, with
+the payload variant agreeing with `artifact_type`. A permit naming one reservation could
+previously cite a commit envelope of another and verify as valid. Failures are
+`EVIDENCE_CORRESPONDENCE_FIELD_MISSING` (absent or malformed field, never a pass) or
+`EVIDENCE_CORRESPONDENCE_MISMATCH`. Amount, unit, action and server identity are not
+compared. Denials are unchanged. The `*WithEvidence` results gain an additive
+`correspondence` field for the fetched envelope. The permit and release verifiers first
+capture the receipt and any envelope as their canonical JSON, parsed into prototype-free
+records, and every check reads only that capture. A field present only as an inherited,
+non-enumerable or non-JSON property, or only on `Object.prototype`, counts as missing. A
+receipt with no canonical JSON form is `SIGNATURE_INVALID` and a supplied envelope with
+none is `EVIDENCE_REF_HASH_MISMATCH`, and verification stops there. On those paths
+`evidence.envelope` is the captured record, not the resolver's object. Each supported option is
+read once by ordinary lookup into a prototype-free snapshot. A receipt whose `cycles_evidence` or
+`scope_of_claim` is not an object is `MISSING_REQUIRED_FIELD`. Correspondence does not establish
+envelope signer authority, which `authority` reports. On every `WithEvidence` path a resolver
+failure can only report a failure status, and correspondence and authority read only an envelope
+the resolution result itself carries. Resolver and key resolver answers count only through their
+own properties, a non-object key resolver answer is a structured failure, and the evidence
+descriptor is prototype-free. See MIGRATION.md.
+
 **A resolver answer that is not a plain object is `*_KEY_RESOLUTION_FAILED` (#228).**
 `classifyResolution` documented this but only refused null, non-objects and arrays, so a
 `Date` or class instance carrying `state` and `public_key_hex` was classified like a plain

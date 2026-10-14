@@ -375,6 +375,7 @@ export type {
   CyclesDenial,
   CyclesDenialDetail,
   CyclesDenialSource,
+  CyclesEvidenceCorrespondence,
   CyclesEvidenceRef,
   CyclesEvidenceView,
   CyclesPermitReceipt,
