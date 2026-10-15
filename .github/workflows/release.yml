@@ -767,4 +767,23 @@ jobs:
             echo "attempt $i: package metadata does not list $PACKAGE_VERSION yet; retrying in 20s"
             sleep 20
           done
-          npm audit signatures
+          # npm serves the attestation bundle from a separate endpoint that lagged the publish on
+          # v8.0.1 and returned E404 one second after the package itself resolved. Retry only that
+          # exact 404 for this package's own attestations URL; any other failure, including a
+          # signature or attestation mismatch, fails on the first attempt.
+          for i in $(seq 1 "$attempts"); do
+            log=$(mktemp)
+            if npm audit signatures 2>&1 | tee "$log"; then
+              break
+            fi
+            if ! grep -q 'npm error code E404' "$log" || ! grep -qF "/-/npm/v1/attestations/agent-passport-system@$PACKAGE_VERSION" "$log"; then
+              echo "npm audit signatures failed for a reason other than missing attestations for this version; not retrying"
+              exit 1
+            fi
+            if [ "$i" -eq "$attempts" ]; then
+              echo "attestations for agent-passport-system@$PACKAGE_VERSION were not served after $attempts attempts"
+              exit 1
+            fi
+            echo "attempt $i: attestations for $PACKAGE_VERSION not served yet; retrying in 20s"
+            sleep 20
+          done
