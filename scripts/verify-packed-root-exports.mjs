@@ -57,6 +57,11 @@ import {
   validateAuthorityDelegationShape,
   selectChainForAction,
   selectWithFallback,
+  signCyclesPermitReceipt,
+  verifyCyclesPermitReceipt,
+  verifyCyclesReleaseReceipt,
+  verifyCyclesDenial,
+  mapCyclesDenialToFoundation,
 } from 'agent-passport-system'
 
 let printed = 0
@@ -246,10 +251,39 @@ ok(
   noFallback.selected === false && noFallback.fallback_considered === false && noFallback.evaluations.length === 1,
 )
 
-// 15 = the 11 symbols the earlier root-export fix added, plus verifyAuthorityDelegationChain,
+// 10. Cycles rail: root exports since 8.0.1. A permit is signed and verified through the
+// published package, and an envelope whose content hash is not the one the receipt cites
+// is refused before any correspondence check.
+const cyclesKeys = generateKeyPair()
+const permit = signCyclesPermitReceipt({
+  agent_id: 'agent-cycles-001',
+  delegation_ref: 'aps:delegation:cycles-001',
+  action_ref: 'aps:action:cycles-001',
+  reservation_id: 'rsv_packed_check',
+  reserved: { unit: 'USD_MICROCENTS', amount: 1000 },
+  decision: 'ALLOW',
+  cycles_evidence: {
+    cycles_evidence_url: 'https://cycles.example.com/v1/evidence/abc',
+    cycles_evidence_id_sha256: 'a'.repeat(64),
+    action_ref: 'aps:action:cycles-001',
+    delegation_ref: 'aps:delegation:cycles-001',
+  },
+}, cyclesKeys.privateKey)
+ok('signCyclesPermitReceipt + verifyCyclesPermitReceipt', verifyCyclesPermitReceipt(permit).valid === true)
+const tampered = verifyCyclesPermitReceipt(permit, {
+  evidence: { evidence_id: 'b'.repeat(64), signature: '', artifact_type: 'reserve', payload: {} },
+})
+ok('verifyCyclesPermitReceipt refuses an envelope the receipt does not cite', tampered.valid === false && tampered.reason === 'EVIDENCE_REF_HASH_MISMATCH')
+ok(
+  'Cycles release, denial and denial mapping are root exports',
+  typeof verifyCyclesReleaseReceipt === 'function' && typeof verifyCyclesDenial === 'function' && typeof mapCyclesDenialToFoundation === 'function',
+)
+
+// 18 = the 11 symbols the earlier root-export fix added, plus verifyAuthorityDelegationChain,
 // which was already exported and is exercised here to verify the issued chain, plus the
-// three chain-selection assertions that 7.2.0 makes part of the stable root surface.
-assert.equal(printed, 15, 'expected 12 earlier OK lines plus the 3 chain-selection ones')
+// three chain-selection assertions that 7.2.0 makes part of the stable root surface, plus
+// the three Cycles assertions that 8.0.1 adds.
+assert.equal(printed, 18, 'expected 12 earlier OK lines, 3 chain-selection and 3 Cycles ones')
 console.log('all confirmed root exports are the working runtime implementation')
 `
 
