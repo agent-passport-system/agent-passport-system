@@ -39,11 +39,13 @@ export { computeScopeVersionHash, verifyScopeVersionMatch } from './core/scope-v
 // ── action_ref (A2A#1672) — Content-Addressed Request Identity ──
 export { computeActionRef, actionRefsMatch } from './core/action-ref.js'
 // External cross-ecosystem correlation key (action-ref-v1-jcs-sha256).
-// Distinct primitive from the APS-native action_ref above.
+// Distinct primitive from the compatibility digest computeActionRef above and from
+// the draft-native computeActionRefV2 below.
 export { computeExternalActionRefV1 } from './core/external-action-ref.js'
 export { parseExternalActionRefV1Preimage } from './core/external-action-ref.js'
 export type { ExternalActionRefV1Input } from './core/external-action-ref.js'
-// The draft-native section 4.1 action reference (aps-action-ref-v2), the whole surface
+// The draft-native action reference (aps-action-ref-v2, section 4.1 in draft -03 and
+// section 5.1 in -04), the whole surface
 // rather than the digest alone. computeActionRefV2FromJson and parseActionReferenceInputV2
 // take the wire bytes, so they can reject a duplicate member, which is evidence an
 // already-parsed object no longer carries: the later member has overwritten the earlier one
