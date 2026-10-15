@@ -21,11 +21,13 @@
 This document specifies the cross-ecosystem `action_ref` v1 form, the one
 computed by `computeExternalActionRefV1`. The derivation follows the form
 converged in public standards discussion in 2026 (w3c-cg/ai-agent-protocol#34).
-It is distinct from the APS-native `action_ref` of
-`draft-pidlisnyi-aps` section 4.1 (`computeActionRef`), whose preimage uses
-camelCase keys, a multi-scope array, and second-precision timestamps. The two
-are separate primitives with intentionally different preimages; this document
-specifies only the v1 cross-ecosystem form.
+It is distinct from the APS-native action reference of
+`draft-pidlisnyi-aps-04` section 5.1 (`computeActionRefV2`, profile
+`aps-action-ref-v2`), and from the older compatibility digest
+`computeActionRef`, whose preimage uses camelCase keys, a multi-scope array,
+and second-precision timestamps. These are separate primitives with
+intentionally different preimages; this document specifies only the v1
+cross-ecosystem form.
 
 ## Definition
 
@@ -59,7 +61,8 @@ All four fields are required strings. Field semantics:
 - `scope`: the terminal executing agent's requested-intent scope, not the
   authorized or narrowed scope. Narrowing lives in the decision and
   commitment records that `action_ref` correlates. A single string; this
-  differs from the APS-native form, whose `scopeRequired` is an array.
+  differs from the APS-native `aps-action-ref-v2` form, whose
+  `scope_required` is an array.
 - `timestamp`: RFC 3339 UTC with exactly three fractional digits, uppercase
   `T`, uppercase `Z`, zero-padded: `YYYY-MM-DDTHH:MM:SS.mmmZ`. There is one
   valid byte sequence per instant. Producers MUST emit this form. Receivers
@@ -111,9 +114,10 @@ validator `plugins/agt_evidence_anchor/action_ref.py::_validate_domain`.
 The domain belongs to this profile, not to canonicalization in general. The
 general-purpose JCS canonicalization this derivation calls
 (`src/core/canonical-jcs.ts`) is unchanged and still accepts non-ASCII
-strings, as RFC 8785 requires. The APS-native `action_ref` of
-`draft-pidlisnyi-aps` section 4.1 (`computeActionRef`) has its own, different
-input rules and is not affected by anything in this section.
+strings, as RFC 8785 requires. The APS-native action reference of
+`draft-pidlisnyi-aps-04` section 5.1 (`computeActionRefV2`) and the older
+compatibility digest `computeActionRef` have their own, different input rules
+and are not affected by anything in this section.
 
 ### Changed acceptance behavior (2026-10-02)
 
@@ -282,8 +286,12 @@ MUST NOT emit a changed form under the v1 label.
 
 ## Pointers
 
-- IETF Internet-Draft: `draft-pidlisnyi-aps` (the APS-native action_ref is
-  section 4.1 of that draft; this document is the cross-ecosystem v1 form).
+- IETF Internet-Draft: `draft-pidlisnyi-aps-04`. Section 5.1 defines the
+  APS-native `aps-action-ref-v2` construction (`computeActionRefV2`).
+  Section 5.2 describes the legacy external correlation form
+  (`action-ref-v1-jcs-sha256`) that this document covers. The upstream profile
+  this document pins restricts strings to ASCII, which section 5.2 does not
+  state, so the two acceptance domains are not claimed to be identical.
 - Reference implementation:
   [src/core/external-action-ref.ts](../../src/core/external-action-ref.ts)
   over [src/core/canonical-jcs.ts](../../src/core/canonical-jcs.ts).
