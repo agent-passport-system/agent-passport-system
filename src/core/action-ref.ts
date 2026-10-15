@@ -131,7 +131,9 @@ function canonicalizeScopeRequired(scope: unknown): unknown {
  * independently hashing the same request produce the same action_ref. As of
  * #101 an `undefined` member is rejected rather than coerced to null, because
  * undefined is not a JSON value; a caller that means the JSON null passes an
- * explicit null. This is the APS-native form. Cross-ecosystem byte-parity with
+ * explicit null. This is the pre-draft compatibility digest, not the draft-native
+ * aps-action-ref-v2 construction (computeActionRefV2, draft-pidlisnyi-aps-04
+ * section 5.1). Cross-ecosystem byte-parity with
  * independent implementations (x402, AgentGraph CTEF, Nobulex) is provided by
  * a separate primitive, computeExternalActionRefV1 in external-action-ref.js,
  * which uses an intentionally different preimage; see that file and
