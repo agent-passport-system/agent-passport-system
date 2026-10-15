@@ -1,5 +1,10 @@
 # Changelog
 
+## 8.0.1 (2026-10-15)
+
+- The Cycles rail is exported from the package root: `signCyclesPermitReceipt`, `verifyCyclesPermitReceipt`, the release and denial functions, the `WithDID` and `WithEvidence` variants, `mapCyclesDenialToFoundation`, `resolveEvidenceRef`, `recomputeEvidenceContentHash`, `toEvidenceDescriptorInput`, the claim type and version constants, and their types. Before this release they were reachable only from source, because the root did not export them and the `exports` map blocks the `dist` path. This includes the 8.0.0 correspondence check, which npm users could not call until now. No behaviour changes.
+- The Cycles correspondence vector test verifies at one minute after each receipt's `issued_at`. Without a fixed time the default 24 hour receipt age limit would fail every case a day after the vectors were generated. The vectors README says the same for other implementations.
+
 ## 8.0.0 (2026-10-14)
 
 Major release. Five changes reject inputs or change verdicts that 7.2.1 accepted or reported differently. Read MIGRATION.md before upgrading.
