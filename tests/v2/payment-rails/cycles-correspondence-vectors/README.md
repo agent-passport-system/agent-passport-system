@@ -20,4 +20,4 @@ The unaltered envelopes come from `../cycles-fixtures/02-reserve-allow.json`, `.
 
 ## Use
 
-`../cycles-correspondence-vectors.test.ts` runs every case against this SDK. Another implementation can load `vectors.json` and compare its own verdicts. Regenerate with `npx tsx tests/v2/payment-rails/cycles-correspondence-vectors/generate.ts` only when the rule changes. `receipt_id` and `issued_at` change on every run, so review the diff.
+`../cycles-correspondence-vectors.test.ts` runs every case against this SDK. Another implementation can load `vectors.json` and compare its own verdicts. Each receipt carries the `issued_at` it was signed at, so verify at a fixed time shortly after it, as the test does with one minute. A verifier with a receipt age limit will otherwise refuse every case once the vectors are older than that limit. Regenerate with `npx tsx tests/v2/payment-rails/cycles-correspondence-vectors/generate.ts` only when the rule changes. `receipt_id` and `issued_at` change on every run, so review the diff.

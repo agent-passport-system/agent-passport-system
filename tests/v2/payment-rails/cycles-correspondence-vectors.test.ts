@@ -39,7 +39,10 @@ test('cycles correspondence vectors: the file carries the expected cases', () =>
 
 for (const c of vectors.cases) {
   test(`cycles correspondence vector: ${c.id}`, () => {
-    const result = verifiers[c.verifier](c.receipt, { evidence: c.envelope }) as any
+    // The receipts were issued when the vectors were generated. Verify one minute after
+    // issue, or the default 24 hour age limit expires every receipt a day later.
+    const now = new Date(Date.parse(c.receipt.issued_at) + 60_000)
+    const result = verifiers[c.verifier](c.receipt, { evidence: c.envelope, now }) as any
     if (c.expected.valid) {
       assert.deepEqual(result, { valid: true, evidence_authenticity: c.expected.evidence_authenticity })
       return

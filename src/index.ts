@@ -1805,6 +1805,63 @@ export type {
   VerifyAp2MandateOptions,
 } from './v2/payment-rails/index.js'
 
+// ── payment-rails / Cycles budget-authority rail ──
+// Permit, release and denial receipts bound by content hash to a Cycles
+// evidence envelope, with the 8.0.0 receipt to envelope correspondence check.
+// These were reachable only from src before 8.0.1.
+export {
+  CYCLES_PROTOCOL_VERSION,
+  CYCLES_EVIDENCE_SCHEMA_VERSION,
+  RAIL_BUDGET_RESERVATION_PERMIT_CLAIM_TYPE,
+  RAIL_BUDGET_RESERVATION_RELEASE_CLAIM_TYPE,
+  RAIL_BUDGET_RESERVATION_DENIAL_CLAIM_TYPE,
+  mapCyclesDenialToFoundation,
+  signCyclesPermitReceipt,
+  signCyclesReleaseReceipt,
+  signCyclesDenial,
+  verifyCyclesPermitReceipt,
+  verifyCyclesPermitReceiptWithDID,
+  verifyCyclesReleaseReceipt,
+  verifyCyclesReleaseReceiptWithDID,
+  verifyCyclesDenial,
+  verifyCyclesDenialWithDID,
+  verifyCyclesPermitReceiptWithEvidence,
+  verifyCyclesReleaseReceiptWithEvidence,
+  verifyCyclesDenialWithEvidence,
+  resolveEvidenceRef,
+  recomputeEvidenceContentHash,
+  toEvidenceDescriptorInput,
+} from './v2/payment-rails/index.js'
+export type {
+  CyclesArtifactType,
+  CyclesDecision,
+  CyclesDenial,
+  CyclesDenialDetail,
+  CyclesDenialSource,
+  CyclesEvidenceCorrespondence,
+  CyclesEvidenceRef,
+  CyclesEvidenceView,
+  CyclesPermitReceipt,
+  CyclesReleaseReceipt,
+  CyclesResolveDidDocument,
+  CyclesVerifyReason,
+  CyclesVerifyResult,
+  SignCyclesDenialInput,
+  SignCyclesPermitReceiptInput,
+  SignCyclesReleaseReceiptInput,
+  VerifyCyclesOptions,
+  CyclesVerifyWithEvidenceResult,
+  EvidenceResolver,
+  EvidenceFetchResult,
+  EvidenceResolutionResult,
+  EvidenceResolutionStatus,
+  EvidenceFailurePolicy,
+  ResolveEvidenceConfig,
+  FetchedCyclesEvidenceEnvelope,
+  EvidenceDescriptorInput,
+  EvidenceObservationBasis,
+} from './v2/payment-rails/index.js'
+
 // ── v2.6.x payment-rails / x402 reference adapter (Base + USDC) ──
 // Settles via the x402 v1 protocol against a caller-supplied
 // facilitator (Coinbase CDP public endpoint by default). Mocked
