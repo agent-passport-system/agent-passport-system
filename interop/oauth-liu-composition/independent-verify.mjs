@@ -12,7 +12,9 @@
 //   receipt id:   sha256("APS-RECEIPT-ID-V1" \0 JCS(receipt minus receipt_id, signatures))
 //   receipt sig:  Ed25519 over "APS-RECEIPT-SIG-V1" \0 JCS({receipt: minus signatures, signer: descriptor})
 //   observation:  Ed25519 over JCS(record minus signature)
-//   evidence ref: sha256(JCS(input artifact)) must equal the committed evidence_refs entry
+//   evidence ref: sha256(JCS(input artifact)) must equal the committed evidence_refs entry,
+//                 where authorization_details is digested as the bare array and
+//                 delegation_chain is digested wrapped, as sha256(JCS({"delegation_chain": [...]}))
 
 import { createHash, verify as cryptoVerify, createPublicKey } from 'node:crypto'
 import { readFileSync } from 'node:fs'
