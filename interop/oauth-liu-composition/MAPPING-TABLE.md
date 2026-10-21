@@ -15,9 +15,9 @@ is embedded in an APS string slot.
 
 | Their ref | Their field | APS slot | How |
 |---|---|---|---|
-| Fig. 1, line 200 | delegation_chain (whole array) | ReceiptV1.evidence_refs[] artifact_type liu-oauth-chain-delegation-00/delegation_chain | digest |
-| Fig. 1, line 200 | delegation_chain (whole array) | ReceiptV1.delegation_ref | derived (liu-chain:sha256:digest string) |
-| Fig. 1, line 200 | delegation_chain (whole array) | DecisionRefInputV1.authority_state_ref via buildDecisionRefV1 authority_state | digest |
+| Fig. 1, line 200 | delegation_chain (whole array, digested wrapped as `{"delegation_chain": [...]}`) | ReceiptV1.evidence_refs[] artifact_type liu-oauth-chain-delegation-00/delegation_chain | digest |
+| Fig. 1, line 200 | delegation_chain (whole array, digested wrapped as `{"delegation_chain": [...]}`) | ReceiptV1.delegation_ref | derived (liu-chain:sha256:digest string) |
+| Fig. 1, line 200 | delegation_chain (whole array, digested wrapped as `{"delegation_chain": [...]}`) | DecisionRefInputV1.authority_state_ref via buildDecisionRefV1 authority_state | digest |
 | Fig. 1, line 203 | delegatee_id (final hop) | ReceiptV1.subject_agent | copied |
 | Fig. 1, line 203 | delegatee_id (final hop) | ActionReferenceInputV2.agent_id | copied |
 | Fig. 1, lines 206-210 | delegated_policy.content (rego allow clauses) | narrowed subset in result.narrowed_subset and CoreDecisionOutputV1.constraints (permit) | derived (input.action equality clauses parsed per the draft's own clause form) |
