@@ -36,7 +36,7 @@ Ed25519 ActionReceipt, AuthorityBoundaryReceipt, CustodyReceipt, ContestabilityR
 
 ## Related projects
 
-- MCP server: https://github.com/aeoess/agent-passport-mcp
+- MCP server: https://github.com/agent-passport-system/agent-passport-mcp
 - Python SDK: https://github.com/agent-passport-system/agent-passport-python
 - Rust SDK: https://crates.io/crates/agent-passport-system
 - Go SDK: https://github.com/agent-passport-system/agent-passport-go
