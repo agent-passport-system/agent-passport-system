@@ -15,6 +15,11 @@
 //   evidence ref: sha256(JCS(input artifact)) must equal the committed evidence_refs entry,
 //                 where authorization_details is digested as the bare array and
 //                 delegation_chain is digested wrapped, as sha256(JCS({"delegation_chain": [...]}))
+//   action_ref:   sha256("APS-ACTION-REF-V2" \0 JCS(action input)), the eight-member input in
+//                 README.md "Construction of action_ref and decision_ref"
+//   decision_ref: sha256("APS-DECISION-REF-V1" \0 JCS(ref input)), where each component ref is
+//                 sha256("<component tag>" \0 JCS(component)), with components and tags in README.md
+//   delegation_ref: "liu-chain:sha256:" + sha256(JCS({"delegation_chain": [...]}))
 
 import { createHash, verify as cryptoVerify, createPublicKey } from 'node:crypto'
 import { readFileSync } from 'node:fs'
@@ -88,6 +93,47 @@ for (const vector of ['v1-permit', 'v2-denial']) {
     byType.get('liu-oauth-authorization-evidence-01/authorization_details') === wantEvidence)
   report(`${vector} delegation_chain digest ties back to input.json`,
     byType.get('liu-oauth-chain-delegation-00/delegation_chain') === wantChain)
+
+  // action_ref, decision_ref and delegation_ref recomputed from input.json by the
+  // construction in README.md. The tagged form is sha256(tag \0 JCS(value)).
+  const tagged = (tag, value) => sha256Hex(`${tag}\0${jcs(value)}`)
+  const ctx = input.rego_decision_context
+  const evaluated = ctx.evaluated_input
+  const finalHop = input.delegation_chain[input.delegation_chain.length - 1]
+  const requested = evaluated.action
+  const actionInput = {
+    profile: 'aps-action-ref-v2',
+    agent_id: finalHop.delegatee_id,
+    action_type: requested,
+    target: `item:${evaluated.item_id}`,
+    payload_ref: sha256Hex(jcs(evaluated)),
+    scope_required: [requested],
+    issued_at: receipt.issued_at,
+    nonce: sha256Hex(`liu-composition-${vector}`).slice(0, 32),
+  }
+  report(`${vector} action_ref recomputes from input.json`, tagged('APS-ACTION-REF-V2', actionInput) === receipt.action_ref)
+
+  const policyRef = { ...ctx.policy_ref,
+    hash: `sha256-${createHash('sha256').update(finalHop.delegated_policy.content, 'utf8').digest('base64')}` }
+  const narrowed = [...new Set([...finalHop.delegated_policy.content.matchAll(/input\.action == "([^"]+)"/g)].map(m => m[1]))].sort()
+  const authorityState = { delegation_chain: input.delegation_chain }
+  const authorityRef = tagged('APS-DECISION-AUTHORITY-V1', authorityState)
+  const context = { policy_ref: policyRef, input_hash: `sha256:${sha256Hex(jcs(evaluated))}`,
+    result: ctx.result, evaluation_timestamp: ctx.evaluation_timestamp }
+  const output = ctx.result === 'allow'
+    ? { profile: 'aps-core-decision-output-v1', verdict: 'permit', effective_authority_ref: authorityRef, constraints: narrowed }
+    : { profile: 'aps-core-decision-output-v1', verdict: 'deny', effective_authority_ref: null,
+        constraints: [`requested_action_outside_narrowed_subset:${requested}`] }
+  const refInput = {
+    profile: 'aps-decision-ref-v1',
+    action_ref: receipt.action_ref,
+    authority_state_ref: authorityRef,
+    policy_ref: tagged('APS-DECISION-POLICY-V1', policyRef),
+    context_ref: tagged('APS-DECISION-CONTEXT-V1', context),
+    decision_output_ref: tagged('APS-DECISION-OUTPUT-V1', output),
+  }
+  report(`${vector} decision_ref recomputes from input.json`, tagged('APS-DECISION-REF-V1', refInput) === receipt.decision_ref)
+  report(`${vector} delegation_ref recomputes from input.json`, `liu-chain:sha256:${wantChain}` === receipt.delegation_ref)
 }
 
 {
