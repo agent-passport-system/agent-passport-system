@@ -53,8 +53,10 @@ All values are I-JSON with integer numbers only. The inputs come from
 | `issued_at` | the receipt's `issued_at` (both vectors: `2026-07-18T19:30:00.000Z`) |
 | `nonce` | the first 32 hex characters of `sha256("liu-composition-" + vector)`, vector being `v1-permit` or `v2-denial` |
 
-**decision_ref** is the tagged digest `APS-DECISION-REF-V1` over a six-member object
-whose five digest members are tagged digests of four components:
+**decision_ref** is the tagged digest `APS-DECISION-REF-V1` over a six-member object.
+`profile` is a fixed string, `action_ref` is the action_ref above as it is, not
+tagged again, and the other four members are tagged digests of the four
+components in the table.
 
 | member | tag | component |
 |---|---|---|
@@ -67,7 +69,8 @@ whose five digest members are tagged digests of four components:
 
 The decision output has four members. `N` is the narrowed subset: every string
 `s` for which `F.delegated_policy.content` contains the clause `input.action == "s"`,
-deduplicated and sorted by UTF-8 bytes.
+deduplicated and sorted by UTF-8 bytes. This pattern match is how the emitter reads
+the two policies in these vectors. It is not a general rule for reading Rego.
 
 - permit (`X.result` is `allow`): `{"profile": "aps-core-decision-output-v1", "verdict": "permit", "effective_authority_ref": <authority_state_ref>, "constraints": N}`
 - deny: `{"profile": "aps-core-decision-output-v1", "verdict": "deny", "effective_authority_ref": null, "constraints": ["requested_action_outside_narrowed_subset:" + E.action]}`
