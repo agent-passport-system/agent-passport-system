@@ -110,5 +110,8 @@
     "LICENSE",
     "SECURITY.md",
     "docs/verification-boundary.md"
-  ]
+  ],
+  "overrides": {
+    "vite": "8.1.6"
+  }
 }
