@@ -296,3 +296,49 @@ test('P17 an approval is consumed once: two dispatches of one approval charge on
   assert.equal((await w.gateway.dispatch('0'.repeat(64))).reason, 'not_authorized')
   assert.deepEqual(w.gateway.budget(b), { limit: '3000', reserved: '0', committed: '1000' })
 })
+
+test('P18 changing the submitted request after authorization does not change what is paid', async () => {
+  const w = createWorld()
+  const b = w.delegate(w.grantToA, AGENT_B, '3000')
+  const s = w.request(AGENT_B, [w.grantToA, b], usd(2000))
+  const a = w.gateway.authorize(s)
+  assert.equal(a.verdict, 'permit')
+  // The caller still holds its own submission object and edits it before dispatch.
+  s.payload.amount_minor = '2900'
+  s.payload.merchant = 'other-shop'
+  s.input.target = 'https://pay.example/merchants/other-shop/charges'
+  const o = await w.gateway.dispatch(a.action_ref!)
+  assert.equal(o.dispatched, true)
+  assert.deepEqual(w.charges, [{ action_ref: a.action_ref, merchant: MERCHANT, amount_minor: '2000', currency: 'USD' }],
+    'the executor received the authorized payment, not the edited one')
+  assert.deepEqual(w.gateway.budget(b), { limit: '3000', reserved: '0', committed: '2000' })
+})
+
+test('P19 an approval is good up to valid_until, not at it', async () => {
+  const before = createWorld()
+  const b1 = before.delegate(before.grantToA, AGENT_B, '3000')
+  const a1 = before.gateway.authorize(before.request(AGENT_B, [before.grantToA, b1], usd(100)))
+  before.clock.advance(DECISION_TTL_MS - 1)
+  assert.equal((await before.gateway.dispatch(a1.action_ref!)).dispatched, true, 'one millisecond before valid_until')
+
+  const at = createWorld()
+  const b2 = at.delegate(at.grantToA, AGENT_B, '3000')
+  const a2 = at.gateway.authorize(at.request(AGENT_B, [at.grantToA, b2], usd(100)))
+  at.clock.advance(DECISION_TTL_MS)
+  const o = await at.gateway.dispatch(a2.action_ref!)
+  assert.equal(o.dispatched, false, 'exactly at valid_until')
+  assert.equal((o.result!.result as { error_code: string }).error_code, 'admission_refused:approval_expired')
+})
+
+test('P20 a request with a bad signature does not use up the agent\'s nonce', async () => {
+  const w = createWorld()
+  const b = w.delegate(w.grantToA, AGENT_B, '3000')
+  const nonce = 'b'.repeat(32)
+  const real = w.request(AGENT_B, [w.grantToA, b], usd(1000), { nonce })
+  // Agent A builds a request in Agent B's name with B's next nonce and signs it with its own key.
+  const { receipt_id: _id, signatures: _sigs, ...fields } = real.intent
+  const forged = createReceiptV1(fields, [{ signer: AGENT_B, key_id: 'key', private_key: w.keys[AGENT_A].privateKey }])
+  assert.equal((await w.gateway.pay({ ...real, intent: forged })).reason, 'intent_invalid')
+  assert.equal((await w.gateway.pay(real)).verdict, 'permit', 'the real request with that nonce still goes through')
+  assert.equal(w.charges.length, 1)
+})

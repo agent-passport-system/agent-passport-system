@@ -2,8 +2,9 @@
 
 A person gives an agent permission to spend. The agent passes part of it to another
 agent. A gateway checks every payment before it happens and refuses anything outside the
-permission. For every request the agent signed, the gateway signs a record of its decision
-that anyone with the public keys can check afterwards. When the person withdraws the
+permission. The gateway signs its decision for every authenticated request that reaches its
+policy checks, and anyone with the public keys can check those records afterwards. A request
+rejected before authentication gets an unsigned refusal. When the person withdraws the
 permission, the next payment is refused, including one already authorized but not yet sent.
 
 This example builds that gateway from the public `agent-passport-system` 8.0.1 package.
@@ -16,7 +17,7 @@ cd examples/payment-authority
 npm install
 npm run demo      # the walkthrough below, writes signed records to out/
 npm run verify    # checks out/receipts.json using only out/public-keys.json
-npm test          # 17 cases
+npm test          # 20 cases
 ```
 
 `npm run typecheck` needs the development dependencies (`npm install --include=dev` if
@@ -72,10 +73,16 @@ Dispatch:
 
 8. The approval is consumed. A second dispatch of the same action returns the first
    outcome and is never charged again.
-9. The approval's `valid_until` and the whole chain, time and revocation included, are
-   checked again. If either fails, the reservation is released and the gateway signs a
-   failed `aps:action-result:v1` record with `admission_refused:<reason>`. The executor is
-   not called.
+9. Three things are checked again. The approval must not have reached `valid_until` (it is
+   good up to that instant, not at it, and a value that does not parse counts as expired).
+   The stored request must still recompute to the approved action reference. The whole
+   chain, time and revocation included, must still be valid. If any check fails, the
+   reservation is released and the gateway signs a failed `aps:action-result:v1` record
+   with `admission_refused:<reason>`. The executor is not called.
+
+The gateway works on a frozen deep copy of the request taken when authorization starts.
+The executor receives the payment from that copy, so a caller that edits its own request
+object after authorization cannot change what is paid.
 10. Otherwise the reservation is marked dispatched, the executor is called, the reservation
     is committed on success and the gateway signs an `aps:action-result:v1` record.
 
@@ -152,3 +159,6 @@ The enforcement point is the gateway.
 | P15 | A revocation between authorization and dispatch stops the payment and releases the reservation |
 | P16 | An approval that waited past `valid_until` is not dispatched |
 | P17 | Two dispatches of one approval charge once |
+| P18 | Editing the submitted request after authorization does not change what the executor receives |
+| P19 | An approval dispatches one millisecond before `valid_until` and is refused at it |
+| P20 | A request with a bad signature does not use up the agent's nonce |

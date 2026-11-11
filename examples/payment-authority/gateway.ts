@@ -24,9 +24,10 @@
 //
 // dispatch(), for a permitted action, once:
 //   8. consume the approval, so it can be used once only
-//   9. recheck the approval's valid_until and the whole chain (time and revocation) at
-//      admission. If either fails, release the reservation and sign a failed
-//      aps:action-result:v1 record. Nothing is sent to the executor.
+//   9. recheck at admission that the approval has not reached valid_until, that the stored
+//      request still recomputes to the approved action reference, and that the whole chain
+//      is still valid (time and revocation). If any fails, release the reservation and
+//      sign a failed aps:action-result:v1 record. Nothing is sent to the executor.
 //  10. otherwise mark the reservation dispatched, call the executor, commit on success
 //      and sign an aps:action-result:v1 record
 //
@@ -76,6 +77,14 @@ export const REPLAY_WINDOW_MS = 5 * 60_000
 export const FUTURE_SKEW_MS = 30_000
 
 const sha256Hex = (s: string): string => createHash('sha256').update(s, 'utf8').digest('hex')
+
+function deepFreeze<T>(value: T): T {
+  if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
+    Object.freeze(value)
+    for (const v of Object.values(value as object)) deepFreeze(v)
+  }
+  return value
+}
 
 export interface PaymentPayload {
   merchant: string
@@ -217,8 +226,17 @@ export class PaymentAuthorityGateway {
    * cannot both pass the budget check against the same remaining amount, and the nonce
    * is recorded before anything else can run.
    */
-  authorize(sub: PaymentSubmission): PaymentOutcome {
+  authorize(submitted: PaymentSubmission): PaymentOutcome {
     const now = this.opts.now()
+    // Every check below, the stored approval and the executor call all read this one deep
+    // copy. A caller that changes its own submission object after authorize() returns
+    // cannot change what is dispatched.
+    let sub: PaymentSubmission
+    try {
+      sub = deepFreeze(structuredClone(submitted))
+    } catch {
+      return { verdict: 'deny', reason: 'submission_not_plain_data', action_ref: null }
+    }
     const deny = (reason: string, actionRef: string | null = null): PaymentOutcome =>
       ({ verdict: 'deny', reason, action_ref: actionRef })
 
@@ -320,6 +338,16 @@ export class PaymentAuthorityGateway {
     return this.decide(sub, actionRef, now, 'permit', 'within_delegated_authority')
   }
 
+  /** True when the stored request still recomputes to the action reference it was approved
+   *  under. The stored copy is frozen, so this is a second line of defense. */
+  private bindsTo(sub: PaymentSubmission, actionRef: string): boolean {
+    try {
+      return computePayloadRefV1(sub.payload) === sub.input.payload_ref && computeActionRefV2(sub.input) === actionRef
+    } catch {
+      return false
+    }
+  }
+
   /** null when the chain is valid at `at`, otherwise the refusal reason. */
   private checkChain(chain: AuthorityDelegationV1[], at: string): string | null {
     const av = verifyAuthorityDelegationChain(chain, {
@@ -373,10 +401,14 @@ export class PaymentAuthorityGateway {
   private async admitAndExecute({ sub, permit }: Authorized): Promise<PaymentOutcome> {
     const actionRef = permit.action_ref!
     const now = this.opts.now()
-    const validUntil = (permit.decision!.result as { valid_until: string }).valid_until
-    const refusal = Date.parse(now) > Date.parse(validUntil)
+    // The approval is good up to, not including, valid_until. A value that does not parse
+    // is treated as expired.
+    const validUntil = Date.parse((permit.decision!.result as { valid_until: string }).valid_until)
+    const refusal = !Number.isFinite(validUntil) || Date.parse(now) >= validUntil
       ? 'approval_expired'
-      : this.checkChain(sub.chain, now)
+      : !this.bindsTo(sub, actionRef)
+        ? 'authorized_request_changed'
+        : this.checkChain(sub.chain, now)
     if (refusal) {
       // Not dispatched, so the reservation can be released.
       this.ledger.cancel(actionRef)
@@ -386,7 +418,8 @@ export class PaymentAuthorityGateway {
     this.ledger.markDispatched(actionRef)
     let outcome: ExecutorResult | { status: 'unknown' }
     try {
-      outcome = await this.opts.executor({ action_ref: actionRef, ...sub.payload })
+      const { merchant, amount_minor, currency } = sub.payload
+      outcome = await this.opts.executor({ action_ref: actionRef, merchant, amount_minor, currency })
     } catch {
       // The rail did not say what happened. The reservation stays held: releasing it
       // could let a payment that did go through be spent a second time.
