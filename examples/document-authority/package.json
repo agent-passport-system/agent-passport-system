@@ -1,0 +1,21 @@
+{
+  "name": "aps-example-document-authority",
+  "private": true,
+  "type": "module",
+  "description": "Reference document authority gateway built on agent-passport-system: delegate, narrow, share, revoke, export portable evidence and verify it offline",
+  "scripts": {
+    "demo": "node --import tsx demo.ts",
+    "verify": "node --import tsx verify-package.ts out/evidence-package.json out/trusted-keys.json",
+    "reconcile": "node --import tsx reconcile.ts out/evidence-package.json out/trusted-keys.json out/repository-log.json",
+    "test": "node --import tsx --test document-cases.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "agent-passport-system": "8.0.1",
+    "tsx": "4.23.15"
+  },
+  "devDependencies": {
+    "@types/node": "25.5.0",
+    "typescript": "5.9.3"
+  }
+}
