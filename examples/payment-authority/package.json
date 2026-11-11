@@ -1,0 +1,20 @@
+{
+  "name": "aps-example-payment-authority",
+  "private": true,
+  "type": "module",
+  "description": "Reference payment authority gateway built on agent-passport-system: delegate, narrow, spend, revoke and verify",
+  "scripts": {
+    "demo": "node --import tsx demo.ts",
+    "verify": "node --import tsx verify.ts out/receipts.json out/public-keys.json",
+    "test": "node --import tsx --test payment-cases.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "agent-passport-system": "8.0.1",
+    "tsx": "4.23.15"
+  },
+  "devDependencies": {
+    "@types/node": "25.5.0",
+    "typescript": "5.9.3"
+  }
+}
