@@ -16,7 +16,7 @@ import { AGENT_A, AGENT_B, AUDITOR, COUNSEL, DOCUMENT, PRESS, REPOSITORY, VERSIO
 import type { World } from './actors.ts'
 import { createReceiptV1 } from 'agent-passport-system'
 import { contentDigest, shareScope } from './document-rules.ts'
-import { sha256Hex } from './engine.ts'
+import { sha256Hex } from 'aps-example-authority-engine/engine.ts'
 import { computePackageId, receiptIndex } from './package-format.ts'
 import type { EvidencePackage } from './package-format.ts'
 import { reconcile } from './reconcile.ts'
@@ -434,4 +434,11 @@ test('D20 an anchor dated before a record in the package is refused, and does no
   trusted.anchors = [{ package_id: pkg.package_id, recorded_at: new Date(Date.parse(cutoff) - 1).toISOString(), recorded_by: 'content-system' }]
   const c3 = verifyPackage(pkg, trusted)
   assert.ok(c3.ok, JSON.stringify([c3.errors, c3.entries.map(e => e.errors)]))
+})
+
+test('D0 the installed engine is the current ../authority-engine/engine.ts', () => {
+  // npm install does not refresh a copied local package. A stale copy would test old code.
+  const source = readFileSync(new URL('../authority-engine/engine.ts', import.meta.url), 'utf8')
+  const installed = readFileSync(new URL('./node_modules/aps-example-authority-engine/engine.ts', import.meta.url), 'utf8')
+  assert.ok(source === installed, 'node_modules has an old copy of the engine. Run npm ci in this folder.')
 })

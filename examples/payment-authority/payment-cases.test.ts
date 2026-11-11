@@ -7,6 +7,7 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { createReceiptV1, issueAuthorityRevocation } from 'agent-passport-system'
 import { AGENT_A, AGENT_B, GATEWAY, MERCHANT, PERSON, createWorld, usd } from './actors.ts'
 import { DECISION_TTL_MS, REPLAY_WINDOW_MS } from './gateway.ts'
@@ -341,4 +342,31 @@ test('P20 a request with a bad signature does not use up the agent\'s nonce', as
   assert.equal((await w.gateway.pay({ ...real, intent: forged })).reason, 'intent_invalid')
   assert.equal((await w.gateway.pay(real)).verdict, 'permit', 'the real request with that nonce still goes through')
   assert.equal(w.charges.length, 1)
+})
+
+test('P21 a currency the gateway accepts but the delegation does not carry, and what a refused invalid payment records', async () => {
+  const w = createWorld({ currencies: ['USD', 'EUR'] })
+  const eur = w.request(AGENT_A, [w.grantToA], { merchant: MERCHANT, amount_minor: '100', currency: 'EUR' })
+  const o1 = await w.gateway.pay(eur)
+  assert.equal(o1.verdict, 'deny')
+  assert.equal(o1.reason, 'currency_not_delegated')
+  checkRecords(w, eur, o1, 'P21 EUR')
+
+  // A refused invalid payment still records the merchant, amount, currency and unit it
+  // was asked for, not only a reference to the payload.
+  const bad = w.request(AGENT_A, [w.grantToA], { merchant: 'Bad Merchant', amount_minor: '100', currency: 'USD' })
+  const o2 = await w.gateway.pay(bad)
+  assert.equal(o2.reason, 'merchant_invalid')
+  assert.deepEqual(o2.evidence!.policy_input, {
+    profile: 'aps-example-payment-authority-v0', merchant: 'Bad Merchant', amount_minor: '100', currency: 'USD', unit: 'iso4217:USD:minor',
+  })
+  checkRecords(w, bad, o2, 'P21 invalid merchant')
+  assert.equal(w.charges.length, 0)
+})
+
+test('P0 the installed engine is the current ../authority-engine/engine.ts', () => {
+  // npm install does not refresh a copied local package. A stale copy would test old code.
+  const source = readFileSync(new URL('../authority-engine/engine.ts', import.meta.url), 'utf8')
+  const installed = readFileSync(new URL('./node_modules/aps-example-authority-engine/engine.ts', import.meta.url), 'utf8')
+  assert.ok(source === installed, 'node_modules has an old copy of the engine. Run npm ci in this folder.')
 })

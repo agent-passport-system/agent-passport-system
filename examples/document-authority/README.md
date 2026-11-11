@@ -11,10 +11,10 @@ only public keys it trusts, checks the package without contacting the gateway. A
 check compares the package with the content repository's own share log, so that what the
 gateway recorded and what the repository did are checked as separate facts.
 
-This example builds on the same two-phase engine as `examples/payment-authority`, with the
-parts specific to documents (payload, target, scope, repository check and the share call)
-behind one `ActionProfile`. It uses the public `agent-passport-system` 8.0.1 package, test
-keys and a mock repository, in one process.
+This example and `examples/payment-authority` run on one two-phase engine,
+`examples/authority-engine`. The parts specific to documents (payload, target, scope,
+repository check and the share call) sit behind one `ActionProfile`. It uses the public
+`agent-passport-system` 8.0.1 package, test keys and a mock repository, in one process.
 
 ## Run
 
@@ -29,6 +29,11 @@ npm test            # 20 cases
 
 `npm run typecheck` needs the development dependencies (`npm install --include=dev` if
 your environment sets `NODE_ENV=production`).
+
+The gateway engine lives in `../authority-engine`, shared with the other example, and
+`npm install` copies it into `node_modules` (`install-links=true` in `.npmrc`). After
+editing `../authority-engine/engine.ts`, run `npm ci` here. `npm install` does not refresh
+the copy, and case D0 fails while the installed copy differs from the source.
 
 ## What the demo shows
 
@@ -112,8 +117,9 @@ When the trusted file marks a key compromised, the verifier refuses everything t
 signed unless the package is anchored before that cutoff, and then only records dated at
 or before the anchor. The cutoff should be the earliest time the key may have been
 exposed, not the time the exposure was noticed. An anchored package that holds any record
-dated after its anchor is refused, because that record cannot have been in the package
-the anchor saw. Case D17 forges a backdated result with a retired key and checks each
+dated after its anchor is refused, because the time that record states conflicts with
+the independent evidence that the package already existed. A signer can write a wrong
+time into a record, so the conflict, not the stated time, is what the verifier acts on. Case D17 forges a backdated result with a retired key and checks each
 situation. Case D20 checks an anchor dated before the records it is said to cover.
 
 For every entry it checks that the action reference recomputes, that the intent is signed
@@ -151,15 +157,14 @@ From `agent-passport-system` 8.0.1, unmodified: delegation issuance, chain verif
 revocation, action references, signed records and their verification, and JCS
 canonicalization.
 
-Written for this example: the engine's check order (`engine.ts`), the document share rules
+Written for these examples: the engine's check order (`../authority-engine/engine.ts`).
+Written for this example: the document share rules
 (`document-rules.ts`), the mock repository and its profile (`repository.ts`), key windows
 (`trust.ts`), the package format and exporter (`package-format.ts`, `export.ts`), the
 verifier (`verify-package.ts`) and the reconciliation (`reconcile.ts`).
 
 ## Limits
 
-- `examples/payment-authority` has not been moved onto `engine.ts` yet. The checks and the
-  records are the same.
 - One process, in memory, nonces never pruned, as in the payment example.
 - The mock repository stands in for a content platform. Its share log is a list in memory
   that the demo writes to a file. A real integration would read the platform's own audit

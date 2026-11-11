@@ -24,9 +24,12 @@
 //     trustworthy, for example with a timestamp authority or the platform's own signed
 //     audit record.
 //
-// A record dated after the anchor cannot have been in the package the anchor saw, so a
-// compromised key is accepted only for records dated at or before the anchor, and the
-// verifier refuses an anchored package that holds any record dated after its anchor.
+// A record dated after the anchor states a chronology that conflicts with the anchor:
+// the record claims a time later than the moment the package containing it already
+// existed. A signer can write a wrong time into a record, so the conflict is the reason
+// to refuse, not a claim about when the record was made. A compromised key is accepted
+// only for records dated at or before the anchor, and the verifier refuses an anchored
+// package that holds any record dated after its anchor.
 //
 // The verifier never resolves a key or an anchor from the evidence package itself.
 
