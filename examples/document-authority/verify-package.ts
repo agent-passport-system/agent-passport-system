@@ -26,10 +26,12 @@
 //     effect at or before that time
 //
 // Record times. Every timestamp in the package is asserted by the party that signed it.
-// Unless the verifier holds an anchor for this package (a content system's own record of
-// when it stored it), time_basis is "signer_asserted": a valid signature under a retired
-// key shows the key signed the record, not when. A key the trusted file marks compromised
-// is refused unless the package is anchored before the compromise.
+// A valid signature under a retired key shows the key signed the record, not when. Unless
+// the trusted input holds an anchor for this package, time_basis is "signer_asserted". An
+// anchor is trusted evidence that the package existed by a time. It does not establish
+// when each record was signed or when a key was first compromised. A key the trusted file
+// marks compromised is refused unless the package is anchored before the declared cutoff,
+// and an anchored package with a record dated after its anchor is refused.
 //
 // What this does not establish: that the package holds every action the gateway decided
 // (a package with an entry removed and its id recomputed still verifies), that an approval
@@ -95,6 +97,18 @@ export function verifyPackage(pkg: EvidencePackage, trusted: TrustedKeys): Packa
     : { kind: 'signer_asserted' }
   const resolveReceipt = receiptKeyResolver(trusted.keys, anchor?.recorded_at)
   const resolveMethod = verificationKeyResolver(trusted.keys, anchor?.recorded_at)
+
+  // A record dated after the anchor could not have been in the package the anchor saw.
+  if (anchor) {
+    const at = Date.parse(anchor.recorded_at)
+    const times: string[] = []
+    for (const e of pkg.entries ?? []) {
+      for (const r of [e.receipts?.intent, e.receipts?.decision, e.receipts?.result]) if (r) times.push(r.issued_at)
+    }
+    for (const d of pkg.delegations ?? []) times.push(d.issued_at)
+    for (const r of (pkg.revocations ?? []) as { revoked_at?: string }[]) if (r?.revoked_at) times.push(r.revoked_at)
+    if (times.some(t => !(Date.parse(t) <= at))) errors.push('records_dated_after_anchor')
+  }
 
   const seen = new Set<string>()
   for (const e of pkg.entries ?? []) {
@@ -254,7 +268,7 @@ function main(packagePath: string, keysPath: string): number {
   const good = c.entries.filter(e => e.ok).length
   console.log(`${good} of ${c.entries.length} entries verified, ${c.errors.length} package errors`)
   console.log(c.time_basis.kind === 'anchored'
-    ? `Record times: package anchored by ${c.time_basis.recorded_by} at ${c.time_basis.recorded_at}.`
+    ? `Record times: trusted evidence from ${c.time_basis.recorded_by} that this package existed by ${c.time_basis.recorded_at}. Not evidence of when each record was signed.`
     : 'Record times: as asserted by their signers. No independent anchor was supplied.')
   console.log(VERIFIER_LIMITS)
   return c.ok ? 0 : 1

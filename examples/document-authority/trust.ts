@@ -9,11 +9,24 @@
 // retired key can still sign a record dated inside its old window.
 //
 // Two inputs, both supplied to the verifier separately from the package, change that:
-//   - compromised_at on a trusted key. From then on the key's signatures are refused,
-//     whatever date the record states, unless independent evidence shows the record
-//     existed before the compromise.
-//   - anchors, a content system's own record of when it stored a package, by package_id.
-//     A package anchored before a key's compromised_at was signed before the compromise.
+//   - compromised_at on a trusted key, a declared cutoff. The key's signatures are refused
+//     for every record, whatever date it states, unless an anchor shows the package
+//     existed before the cutoff. The trust source should declare the earliest time the
+//     key may have been exposed, not the time the exposure was noticed. An anchor taken
+//     after the real exposure but before a late cutoff would be accepted.
+//   - anchors, each saying that a package with this id existed by this time. An anchor is
+//     evidence that the package existed, subject to whatever made the verifier trust it.
+//     It does not establish when the gateway signed each record, or when a key was first
+//     compromised. In this example an anchor is a plain entry in the trusted file,
+//     simulating a content system's storage record. It carries no signature or proof of
+//     ingestion, so the example tests the verifier's policy, not an authenticated record.
+//     A real integration has to establish that the stored time and package id are
+//     trustworthy, for example with a timestamp authority or the platform's own signed
+//     audit record.
+//
+// A record dated after the anchor cannot have been in the package the anchor saw, so a
+// compromised key is accepted only for records dated at or before the anchor, and the
+// verifier refuses an anchored package that holds any record dated after its anchor.
 //
 // The verifier never resolves a key or an anchor from the evidence package itself.
 
@@ -33,7 +46,7 @@ export interface KeyEntry {
   compromised_at?: string
 }
 
-/** A content system's record that it stored the package with this id at this time. */
+/** Trusted evidence that the package with this id existed by recorded_at. */
 export interface PackageAnchor {
   package_id: string
   recorded_at: string
@@ -58,7 +71,8 @@ export function beforeCompromise(k: KeyEntry, at: string, anchoredAt?: string): 
   if (k.compromised_at === undefined) return true
   const c = Date.parse(k.compromised_at)
   const a = anchoredAt === undefined ? NaN : Date.parse(anchoredAt)
-  return Number.isFinite(c) && Number.isFinite(a) && a < c && Date.parse(at) < c
+  const t = Date.parse(at)
+  return Number.isFinite(c) && Number.isFinite(a) && a < c && t <= a
 }
 
 /** The one key for signer and key_id whose window contains `at`, otherwise undefined. */

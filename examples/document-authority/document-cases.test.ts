@@ -362,8 +362,10 @@ test('D17 a backdated record signed with a retired key: accepted as signer-asser
   compromised.anchors = [{ package_id: original.package_id, recorded_at: w.clock.advance(1000), recorded_by: 'content-system' }]
   assert.equal(verifyPackage(original, compromised).ok, false)
 
-  // The content system recorded the genuine package before the compromise. That anchor
-  // restores the genuine package and does nothing for the forgery, whose id differs.
+  // A simulated trusted anchor says the genuine package existed before the compromise.
+  // It restores the genuine package and does nothing for the forgery, whose id differs.
+  // The anchor is a plain trusted entry, so this tests the verifier's policy, not an
+  // authenticated content-system record.
   compromised.anchors = [{ package_id: original.package_id, recorded_at: anchoredAt, recorded_by: 'content-system' }]
   const genuine = verifyPackage(original, compromised)
   assert.ok(genuine.ok, JSON.stringify(genuine.errors))
@@ -405,4 +407,31 @@ test('D19 completeness is not established: a package with an entry removed still
   // The same entry twice is refused.
   const doubled = reId({ ...clone(pkg), entries: [...pkg.entries, pkg.entries[1]] })
   assert.ok(verifyPackage(doubled, w.trustedKeys()).errors.some(x => x.startsWith('duplicate_entry:')))
+})
+
+test('D20 an anchor dated before a record in the package is refused, and does not rescue a compromised key', async () => {
+  const { w, chainB } = setup()
+  await w.run('shared', AGENT_B, chainB, w.share(AUDITOR))
+  const pkg = verifyOk(w)
+  const firstRecord = pkg.entries[0].timestamps.requested_at
+  const tooEarly = new Date(Date.parse(firstRecord) - 1).toISOString()
+
+  // Key not compromised: the inconsistent anchor alone makes the package fail.
+  const trusted = { ...w.trustedKeys(), anchors: [{ package_id: pkg.package_id, recorded_at: tooEarly, recorded_by: 'content-system' }] }
+  const c1 = verifyPackage(pkg, trusted)
+  assert.equal(c1.ok, false)
+  assert.ok(c1.errors.includes('records_dated_after_anchor'))
+
+  // Key compromised later: the early anchor does not make the key's records acceptable.
+  const cutoff = w.clock.advance(10_000)
+  trusted.keys.find(k => k.signer === pkg.producer && k.key_id === 'key-1')!.compromised_at = cutoff
+  const c2 = verifyPackage(pkg, trusted)
+  assert.equal(c2.ok, false)
+  assert.ok(c2.errors.includes('records_dated_after_anchor'))
+  assert.equal(c2.entries[0].ok, false, 'records dated after the anchor are not covered by it')
+
+  // An anchor at or after the last record and before the cutoff is consistent.
+  trusted.anchors = [{ package_id: pkg.package_id, recorded_at: new Date(Date.parse(cutoff) - 1).toISOString(), recorded_by: 'content-system' }]
+  const c3 = verifyPackage(pkg, trusted)
+  assert.ok(c3.ok, JSON.stringify([c3.errors, c3.entries.map(e => e.errors)]))
 })

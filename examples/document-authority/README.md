@@ -24,7 +24,7 @@ npm install
 npm run demo        # the walkthrough below, writes three files to out/
 npm run verify      # checks out/evidence-package.json with out/trusted-keys.json only
 npm run reconcile   # compares the package with out/repository-log.json
-npm test            # 19 cases
+npm test            # 20 cases
 ```
 
 `npm run typecheck` needs the development dependencies (`npm install --include=dev` if
@@ -65,7 +65,8 @@ The share call names the version number, never a reference to the latest version
 repository compares the stored bytes with the approved digest in the same call that records
 the share. Case D18 changes the bytes while the share is running. A real integration needs
 the same property from the content platform: share by immutable version and check the
-digest in the same operation.
+digest in the same operation. That is a requirement on the adapter and the platform, not
+something APS records can show.
 
 ## The evidence package
 
@@ -96,11 +97,24 @@ from the gateway, the repository or the exporter, and the tests check that.
 Every timestamp in a record is asserted by whoever signed it. A valid signature under a
 retired key shows that the key signed the record, not when, so anyone who later obtains the
 retired key can sign a record dated inside its old window. The verifier reports record
-times as signer-asserted unless the trusted file includes an anchor, a content system's own
-record of when it stored this package. When the trusted file marks a key compromised, the
-verifier refuses everything that key signed unless the package was anchored before the
-compromise. Case D17 forges a backdated result with a retired key and checks all three
-situations.
+times as signer-asserted unless its trusted input includes an anchor for the package.
+
+An anchor says that a package with this id existed by a given time. It is evidence of the
+package's existence, as strong as whatever made the verifier trust it. It does not
+establish when the gateway signed each record, or when a key was first compromised. In
+this example an anchor is a plain entry in the trusted file that simulates a content
+system's storage record. It carries no signature or proof of ingestion, so the tests
+exercise the verifier's policy, not an authenticated record. A real integration has to
+establish that the stored time and package id are trustworthy, for example through a
+timestamp authority or the platform's own signed audit record.
+
+When the trusted file marks a key compromised, the verifier refuses everything that key
+signed unless the package is anchored before that cutoff, and then only records dated at
+or before the anchor. The cutoff should be the earliest time the key may have been
+exposed, not the time the exposure was noticed. An anchored package that holds any record
+dated after its anchor is refused, because that record cannot have been in the package
+the anchor saw. Case D17 forges a backdated result with a retired key and checks each
+situation. Case D20 checks an anchor dated before the records it is said to cover.
 
 For every entry it checks that the action reference recomputes, that the intent is signed
 by the agent, that the decision is signed by the gateway and binds the authority state,
@@ -180,3 +194,4 @@ verifier (`verify-package.ts`) and the reconciliation (`reconcile.ts`).
 | D17 | A result forged with a retired key and backdated: accepted as signer-asserted, refused once the key is marked compromised, accepted again only for the genuine package anchored before the compromise |
 | D18 | The bytes change while the share is running: the repository refuses and nothing is shared |
 | D19 | A package with an entry removed still verifies and reconciliation reports the missing share. A duplicated entry is refused. |
+| D20 | An anchor dated before records in the package is refused, and does not make a compromised key's records acceptable |
