@@ -88,7 +88,7 @@ export function authorityBody(
  * The scenario: a person gives Agent A permission to spend $100 at one merchant, in USD,
  * for one hour. `executor` defaults to a mock that records every charge it is asked for.
  */
-export function createWorld(opts: { executor?: PaymentExecutor; rootCents?: string } = {}): World {
+export function createWorld(opts: { executor?: PaymentExecutor; rootCents?: string; currencies?: readonly string[] } = {}): World {
   const clock = new TestClock()
   const keys: Record<string, { publicKey: string; privateKey: string }> = {
     [PERSON]: generateKeyPair(),
@@ -113,6 +113,7 @@ export function createWorld(opts: { executor?: PaymentExecutor; rootCents?: stri
     trustRoot: root => root.issuer === PERSON && root.verification_method === `${PERSON}#key`,
     executor: opts.executor ?? mockExecutor,
     now: clock.now,
+    currencies: opts.currencies,
   })
 
   const issuedAt = clock.now()

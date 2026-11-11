@@ -17,11 +17,16 @@ cd examples/payment-authority
 npm install
 npm run demo      # the walkthrough below, writes signed records to out/
 npm run verify    # checks out/receipts.json using only out/public-keys.json
-npm test          # 20 cases
+npm test          # 21 cases
 ```
 
 `npm run typecheck` needs the development dependencies (`npm install --include=dev` if
 your environment sets `NODE_ENV=production`).
+
+The gateway engine lives in `../authority-engine`, shared with the other example, and
+`npm install` copies it into `node_modules` (`install-links=true` in `.npmrc`). After
+editing `../authority-engine/engine.ts`, run `npm ci` here. `npm install` does not refresh
+the copy, and case P0 fails while the installed copy differs from the source.
 
 ## What the demo shows
 
@@ -108,10 +113,11 @@ From `agent-passport-system` 8.0.1, unmodified: delegation issuance and chain ve
 `computeActionRefV2`, `computePayloadRefV1`) and signed records (`createReceiptV1`,
 `verifyReceiptV1`, `buildDecisionRefV1`, `verifyReceiptWithDecisionV1`).
 
-Written for this example, in `gateway.ts`: the order of the checks, the mapping from a
-payment to a scope grant, a target and a spend unit, the refusal reasons, the replay
-handling and the call to the executor. The SDK records alone do not enforce any of this.
-The enforcement point is the gateway.
+Written for these examples, in `../authority-engine/engine.ts`: the order of the checks,
+the replay handling, the budget lifecycle and the signed records. Written for this
+example, in `gateway.ts`: the payment profile, which maps a payment to a scope grant, a
+target and a spend unit, sets the refusal reasons and calls the executor. The SDK records
+alone do not enforce any of this. The enforcement point is the gateway.
 
 ## Limits
 
@@ -162,3 +168,4 @@ The enforcement point is the gateway.
 | P18 | Editing the submitted request after authorization does not change what the executor receives |
 | P19 | An approval dispatches one millisecond before `valid_until` and is refused at it |
 | P20 | A request with a bad signature does not use up the agent's nonce |
+| P21 | A currency the gateway accepts but the delegation does not carry is refused, and a refused invalid payment records what it asked for |

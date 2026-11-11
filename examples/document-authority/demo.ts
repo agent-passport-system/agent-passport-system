@@ -10,7 +10,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { AGENT_A, AGENT_B, AUDITOR, COUNSEL, PRESS, createWorld } from './actors.ts'
 import { shareScope } from './document-rules.ts'
-import type { Outcome } from './engine.ts'
+import type { Outcome } from 'aps-example-authority-engine/engine.ts'
 
 const w = createWorld()
 const line = (step: string, outcome: string) => console.log(`${step.padEnd(58)} ${outcome}`)

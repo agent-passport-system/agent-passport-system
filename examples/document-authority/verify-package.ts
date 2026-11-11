@@ -98,7 +98,8 @@ export function verifyPackage(pkg: EvidencePackage, trusted: TrustedKeys): Packa
   const resolveReceipt = receiptKeyResolver(trusted.keys, anchor?.recorded_at)
   const resolveMethod = verificationKeyResolver(trusted.keys, anchor?.recorded_at)
 
-  // A record dated after the anchor could not have been in the package the anchor saw.
+  // A record dated after the anchor states a time that conflicts with the anchor's
+  // evidence that the package already existed. Refuse the conflict.
   if (anchor) {
     const at = Date.parse(anchor.recorded_at)
     const times: string[] = []

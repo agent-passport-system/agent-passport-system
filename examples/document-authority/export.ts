@@ -5,7 +5,7 @@
 // as they are. Nothing here signs anything.
 
 import type { AuthorityDelegationV1 } from 'agent-passport-system'
-import type { Outcome, Submission } from './engine.ts'
+import type { Outcome, Submission } from 'aps-example-authority-engine/engine.ts'
 import type { DocumentSharePayload } from './document-rules.ts'
 import { EVIDENCE_PACKAGE_PROFILE, computePackageId, receiptIndex } from './package-format.ts'
 import type { EvidenceEntry, EvidencePackage } from './package-format.ts'

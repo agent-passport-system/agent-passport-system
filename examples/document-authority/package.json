@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "agent-passport-system": "8.0.1",
+    "aps-example-authority-engine": "file:../authority-engine",
     "tsx": "4.23.15"
   },
   "devDependencies": {

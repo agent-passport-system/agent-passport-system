@@ -1,0 +1,20 @@
+{
+  "name": "aps-example-authority-engine",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared two-phase authority gateway engine for the payment-authority and document-authority examples",
+  "exports": {
+    "./engine.ts": "./engine.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "agent-passport-system": "8.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "25.5.0",
+    "typescript": "5.9.3"
+  }
+}

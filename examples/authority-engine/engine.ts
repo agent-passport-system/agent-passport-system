@@ -1,10 +1,10 @@
 // Copyright (c) 2026 Tymofii Pidlisnyi
 // SPDX-License-Identifier: Apache-2.0
 //
-// Authority gateway engine: the two-phase enforcement boundary of the payment-authority
-// example, with everything specific to one kind of action moved behind ActionProfile.
-// The payment example has not been ported to this file yet. The checks, their order and
-// the signed records are the same.
+// Authority gateway engine: the two-phase enforcement boundary shared by the
+// payment-authority and document-authority examples. Everything specific to one kind of
+// action is behind ActionProfile. This is reference code for the examples, in one process
+// with in-memory state, not a hosted service and not part of the SDK's public API.
 //
 // authorize(), synchronous, for every request:
 //   1. recompute the action reference from the submitted request and payload
@@ -76,12 +76,21 @@ export interface ActionProfile<P> {
   target(p: P): string
   /** The one scope grant this action requires. */
   scope(p: P): string
+  /** Refusal reason when the leaf delegation does not cover the scope. Default
+   *  "not_in_delegated_scope". */
+  scopeDenyReason?: string
+  /** Refusal reason when the leaf's spend unit differs from the charge's. Default
+   *  "unit_not_delegated". */
+  unitDenyReason?: string
   /** Gateway-side check run at authorize and again at admission. null when it passes. */
   check?(p: P): string | null
   /** Budget charge, or null for an action that spends nothing. */
   charge?(p: P): { unit: string; amount: string } | null
   /** Policy facts recorded in the decision, without the profile id. */
   policyInput(p: P): { [key: string]: Json }
+  /** Policy facts recorded when the payload failed validate(). Default: the payload
+   *  reference only. */
+  policyInputUnvalidated?(payload: unknown, payloadRef: string): { [key: string]: Json }
   /** The external system. Throwing means the outcome is unknown. */
   execute(call: { action_ref: string; payload: P }): Promise<ExecutorResult>
 }
@@ -154,6 +163,13 @@ export class AuthorityGateway<P> {
    *  resolves as revocation-unknown and is refused. */
   enroll(chain: readonly AuthorityDelegationV1[]): void {
     for (const d of chain) this.revocations.track(d.delegation_id)
+  }
+
+  /** Limit, reserved and committed budget for one bounded delegation. */
+  budget(delegation: AuthorityDelegationV1): { limit: string; reserved: string; committed: string } | null {
+    const spend = delegation.authority.spend
+    if (spend.mode !== 'bounded') return null
+    return { limit: spend.cumulative, ...this.ledger.counter(delegation.delegation_id) }
   }
 
   revoke(target: AuthorityDelegationV1, revocation: unknown): { recorded: boolean; reason?: string } {
@@ -242,7 +258,9 @@ export class AuthorityGateway<P> {
     }
     const scope = this.profile.scope(p)
     if (sub.input.scope_required.length !== 1 || sub.input.scope_required[0] !== scope) return signedDeny('scope_required_mismatch')
-    if (!leaf.authority.scope.grants.some(g => scopeGrantCovers(g, scope))) return signedDeny('not_in_delegated_scope')
+    if (!leaf.authority.scope.grants.some(g => scopeGrantCovers(g, scope))) {
+      return signedDeny(this.profile.scopeDenyReason ?? 'not_in_delegated_scope')
+    }
 
     const checked = this.profile.check?.(p) ?? null
     if (checked) return signedDeny(checked)
@@ -251,7 +269,7 @@ export class AuthorityGateway<P> {
     if (charge) {
       const spend = leaf.authority.spend
       if (spend.mode !== 'bounded') return signedDeny('spend_unbounded_refused')
-      if (spend.unit !== charge.unit) return signedDeny('unit_not_delegated')
+      if (spend.unit !== charge.unit) return signedDeny(this.profile.unitDenyReason ?? 'unit_not_delegated')
       const r = this.ledger.reserve(chain, actionRef, charge.unit, charge.amount)
       if (!r.ok || r.code !== 'RESERVED') return signedDeny(`budget_${r.code.toLowerCase()}`)
     }
@@ -296,10 +314,9 @@ export class AuthorityGateway<P> {
     for (const d of chain) {
       if (d?.authority?.spend?.mode === 'bounded') counters[d.delegation_id] = this.ledger.counter(d.delegation_id)
     }
-    // A payload that failed validation is recorded by its reference only.
     const policy_input: { [key: string]: Json } = this.profile.validate(sub.payload) === null
       ? { profile: this.profile.id, ...this.profile.policyInput(sub.payload) }
-      : { profile: this.profile.id, payload_ref: sub.input.payload_ref }
+      : { profile: this.profile.id, ...(this.profile.policyInputUnvalidated?.(sub.payload, sub.input.payload_ref) ?? { payload_ref: sub.input.payload_ref }) }
     const evidence: DecisionEvidence = {
       authority_state: { chain: chain.map(d => String(d?.delegation_id)), counters },
       policy_input,

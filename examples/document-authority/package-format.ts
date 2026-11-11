@@ -12,7 +12,7 @@
 import { createHash } from 'node:crypto'
 import { canonicalizeJCS } from 'agent-passport-system'
 import type { ActionReferenceInputV2, AuthorityDelegationV1, ReceiptV1 } from 'agent-passport-system'
-import type { DecisionEvidence } from './engine.ts'
+import type { DecisionEvidence } from 'aps-example-authority-engine/engine.ts'
 import type { DocumentSharePayload } from './document-rules.ts'
 import type { KeyEntry } from './trust.ts'
 

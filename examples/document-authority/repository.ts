@@ -9,7 +9,7 @@
 // record of the share" are checked as separate facts.
 
 import { randomBytes } from 'node:crypto'
-import type { ActionProfile } from './engine.ts'
+import type { ActionProfile } from 'aps-example-authority-engine/engine.ts'
 import {
   DOCUMENT_SHARE_ACTION_TYPE, DOCUMENT_SHARE_PROFILE, contentDigest, shareScope, shareTarget, validateSharePayload,
 } from './document-rules.ts'

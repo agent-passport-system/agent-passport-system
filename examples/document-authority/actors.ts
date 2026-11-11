@@ -11,8 +11,8 @@ import {
   issueAuthorityDelegation, issueAuthorityRevocation, issueSubAuthorityDelegation,
 } from 'agent-passport-system'
 import type { AuthorityDelegationBodyV1, AuthorityDelegationV1 } from 'agent-passport-system'
-import { AuthorityGateway } from './engine.ts'
-import type { ActionProfile, Outcome, Submission } from './engine.ts'
+import { AuthorityGateway } from 'aps-example-authority-engine/engine.ts'
+import type { ActionProfile, Outcome, Submission } from 'aps-example-authority-engine/engine.ts'
 import { DOCUMENT_SHARE_ACTION_TYPE, shareScope, shareTarget } from './document-rules.ts'
 import type { DocumentSharePayload } from './document-rules.ts'
 import { MockContentRepository, documentShareProfile } from './repository.ts'
