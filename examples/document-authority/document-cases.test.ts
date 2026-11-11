@@ -14,11 +14,14 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { AGENT_A, AGENT_B, AUDITOR, COUNSEL, DOCUMENT, PRESS, REPOSITORY, VERSION, createWorld } from './actors.ts'
 import type { World } from './actors.ts'
+import { createReceiptV1 } from 'agent-passport-system'
 import { contentDigest, shareScope } from './document-rules.ts'
-import { computePackageId } from './package-format.ts'
+import { sha256Hex } from './engine.ts'
+import { computePackageId, receiptIndex } from './package-format.ts'
 import type { EvidencePackage } from './package-format.ts'
 import { reconcile } from './reconcile.ts'
-import { verifyPackage } from './verify-package.ts'
+import { documentShareProfile } from './repository.ts'
+import { VERIFIER_LIMITS, verifyPackage } from './verify-package.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const clone = <T>(x: T): T => JSON.parse(JSON.stringify(x)) as T
@@ -304,4 +307,102 @@ test('D16 a gateway with a policy bug signs a permit beyond scope: the offline v
   assert.equal(c.entries[0].ok, false)
   assert.ok(c.entries[0].errors.includes('permit_not_in_delegated_scope'), c.entries[0].errors.join())
   assert.ok(c.entries[0].errors.includes('permit_scope_required_mismatch'))
+})
+
+test('D17 a backdated record signed with a retired key: accepted as signer-asserted, refused once the key is marked compromised, unless anchored', async () => {
+  const { w, chainB } = setup()
+  // Before rotation: an approved share whose bytes change before dispatch, so it fails.
+  const sub = w.request(AGENT_B, chainB, w.share(AUDITOR))
+  const a = w.gateway.authorize(sub)
+  w.repository.put(REPOSITORY, DOCUMENT, VERSION, 'Q3 board pack, version 3, edited after approval.')
+  const failed = await w.gateway.dispatch(a.action_ref!)
+  assert.equal(status(failed), 'failed')
+  w.records.push({ label: 'failed share', sub, outcome: failed })
+  const original = verifyOk(w)
+  const anchoredAt = w.clock.now()
+  const rotatedAt = (w.rotateGatewayKey(), w.clock.now())
+
+  // After rotation, someone holding the retired key-1 replaces the failed result with a
+  // succeeded one, dated inside key-1's old window, and rebuilds the index.
+  const forged = clone(original)
+  const e = forged.entries[0]
+  const fakeShare = 'shr_forged000000000'
+  e.receipts.result = createReceiptV1({
+    profile: 'aps-receipt-v1', receipt_type: 'aps:action-result:v1', issuer: forged.producer,
+    subject_agent: e.receipts.decision.subject_agent, action_ref: e.entry_id, delegation_ref: e.receipts.decision.delegation_ref,
+    decision_ref: e.receipts.decision.decision_ref, issued_at: e.receipts.result!.issued_at, evidence_refs: [],
+    result: { profile: 'aps-action-result-v1', status: 'succeeded', effect_ref: sha256Hex(fakeShare), error_code: null } as never,
+    prev: e.receipts.decision.receipt_id,
+  }, [{ signer: forged.producer, key_id: 'key-1', private_key: w.leakedKey(forged.producer, 'key-1') }])
+  e.outcome.result_status = 'succeeded'
+  e.repository_result = { system: w.repository.system, share_id: fakeShare }
+  e.receipt_index = receiptIndex(e.receipts)
+  const forgedPkg = reId(forged)
+
+  // With key-1 only retired, signatures cannot tell the forgery apart. The verifier accepts
+  // it and says the times are the signers' own.
+  // The genuine package, exported before the rotation, still verifies after it.
+  assert.ok(verifyPackage(original, w.trustedKeys()).ok)
+  const retired = verifyPackage(forgedPkg, w.trustedKeys())
+  assert.ok(retired.ok, JSON.stringify([retired.errors, retired.entries.map(x => x.errors)]))
+  assert.deepEqual(retired.time_basis, { kind: 'signer_asserted' })
+  // The repository's own log shows no such share.
+  assert.deepEqual(reconcile(forgedPkg, w.repository.exportLog()).map(f => f.code), ['recorded_share_not_in_repository_log'])
+
+  // Once the trust source marks key-1 compromised at rotation, nothing it signed is
+  // accepted without independent time evidence, the genuine package included.
+  const compromised = w.trustedKeys()
+  compromised.keys.find(k => k.signer === forged.producer && k.key_id === 'key-1')!.compromised_at = rotatedAt
+  const c1 = verifyPackage(forgedPkg, compromised)
+  assert.equal(c1.ok, false)
+  assert.ok(c1.errors.some(x => x.startsWith('key_compromised_without_prior_anchor:')))
+  assert.equal(verifyPackage(original, compromised).ok, false)
+
+  // An anchor recorded after the compromise is no evidence the record came first.
+  compromised.anchors = [{ package_id: original.package_id, recorded_at: w.clock.advance(1000), recorded_by: 'content-system' }]
+  assert.equal(verifyPackage(original, compromised).ok, false)
+
+  // The content system recorded the genuine package before the compromise. That anchor
+  // restores the genuine package and does nothing for the forgery, whose id differs.
+  compromised.anchors = [{ package_id: original.package_id, recorded_at: anchoredAt, recorded_by: 'content-system' }]
+  const genuine = verifyPackage(original, compromised)
+  assert.ok(genuine.ok, JSON.stringify(genuine.errors))
+  assert.equal(genuine.time_basis.kind, 'anchored')
+  assert.equal(verifyPackage(forgedPkg, compromised).ok, false)
+})
+
+test('D18 the bytes change while the share is running: the repository refuses, nothing is shared', async () => {
+  const holder: { w?: World } = {}
+  const { w, chainB } = setup({
+    execute: async call => {
+      holder.w!.repository.put(REPOSITORY, DOCUMENT, VERSION, 'Q3 board pack, version 3, swapped during the share.')
+      return documentShareProfile(holder.w!.repository).execute(call)
+    },
+  })
+  holder.w = w
+  const o = await w.run('swapped during share', AGENT_B, chainB, w.share(AUDITOR))
+  assert.equal(o.verdict, 'permit')
+  assert.equal(o.dispatched, true)
+  assert.equal(status(o), 'failed')
+  assert.equal(errorCode(o), 'content_digest_mismatch')
+  assert.equal(w.repository.exportLog().length, 0)
+  const pkg = verifyOk(w)
+  assert.deepEqual(reconcile(pkg, w.repository.exportLog()), [])
+})
+
+test('D19 completeness is not established: a package with an entry removed still verifies, the repository log shows the gap', async () => {
+  const { w, chainB } = setup()
+  await w.run('denied', AGENT_B, chainB, w.share(COUNSEL))
+  await w.run('shared', AGENT_B, chainB, w.share(AUDITOR))
+  const pkg = verifyOk(w)
+
+  const smaller = reId({ ...clone(pkg), entries: pkg.entries.filter(e => e.label !== 'shared') })
+  const c = verifyPackage(smaller, w.trustedKeys())
+  assert.ok(c.ok, 'a smaller valid package is accepted, and the verifier does not claim completeness')
+  assert.match(VERIFIER_LIMITS, /every action/)
+  assert.deepEqual(reconcile(smaller, w.repository.exportLog()).map(f => f.code), ['repository_share_without_aps_permit'])
+
+  // The same entry twice is refused.
+  const doubled = reId({ ...clone(pkg), entries: [...pkg.entries, pkg.entries[1]] })
+  assert.ok(verifyPackage(doubled, w.trustedKeys()).errors.some(x => x.startsWith('duplicate_entry:')))
 })

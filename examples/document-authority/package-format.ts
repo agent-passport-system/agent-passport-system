@@ -56,8 +56,8 @@ export interface EvidencePackage {
   package_id: string
   exported_at: string
   producer: string
-  /** Which key signed what. The verifier checks each entry against its own trusted keys
-   *  and resolves signatures only from those. */
+  /** Which key signed what, with the windows the producer knew at export. The verifier
+   *  checks each key against its own trusted keys and uses only the trusted windows. */
   key_resolution: (KeyEntry & { fingerprint: string })[]
   delegations: AuthorityDelegationV1[]
   /** Signed revocations the producer recorded. */

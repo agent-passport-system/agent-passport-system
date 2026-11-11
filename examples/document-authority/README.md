@@ -24,7 +24,7 @@ npm install
 npm run demo        # the walkthrough below, writes three files to out/
 npm run verify      # checks out/evidence-package.json with out/trusted-keys.json only
 npm run reconcile   # compares the package with out/repository-log.json
-npm test            # 16 cases
+npm test            # 19 cases
 ```
 
 `npm run typecheck` needs the development dependencies (`npm install --include=dev` if
@@ -61,6 +61,12 @@ the requested version, at authorization and again just before the share. The rep
 checks the digest a third time when it shares. A request whose bytes no longer match is
 refused at whichever point sees the change first, and nothing is shared.
 
+The share call names the version number, never a reference to the latest version, and the
+repository compares the stored bytes with the approved digest in the same call that records
+the share. Case D18 changes the bytes while the share is running. A real integration needs
+the same property from the content platform: share by immutable version and check the
+digest in the same operation.
+
 ## The evidence package
 
 `out/evidence-package.json` holds the original signed records unchanged, with an index a
@@ -83,10 +89,18 @@ accidental change. It is not a signature.
 ## What the verifier checks
 
 `verify-package.ts` reads the package and a trusted key file. It resolves every key from
-the trusted file, never from the package, and only inside the key's validity window, so
-records signed before a rotation keep verifying and a retired key cannot sign anything
-dated after its retirement. It imports nothing from the gateway, the repository or the
-exporter, and the tests check that.
+the trusted file, never from the package, and only inside the key's validity window in
+that file. Records signed before a rotation keep verifying after it. It imports nothing
+from the gateway, the repository or the exporter, and the tests check that.
+
+Every timestamp in a record is asserted by whoever signed it. A valid signature under a
+retired key shows that the key signed the record, not when, so anyone who later obtains the
+retired key can sign a record dated inside its old window. The verifier reports record
+times as signer-asserted unless the trusted file includes an anchor, a content system's own
+record of when it stored this package. When the trusted file marks a key compromised, the
+verifier refuses everything that key signed unless the package was anchored before the
+compromise. Case D17 forges a backdated result with a retired key and checks all three
+situations.
 
 For every entry it checks that the action reference recomputes, that the intent is signed
 by the agent, that the decision is signed by the gateway and binds the authority state,
@@ -99,11 +113,18 @@ in the package that took effect by then.
 
 ## What it does not establish
 
-The verifier does not show that the repository shared anything. That is what
-`reconcile.ts` checks, against the repository's own log, in both directions: a share the
-gateway recorded must be in the log, and a share in the log with no APS permit is reported
-as a share that did not go through this gateway. How far that log can be trusted depends
-on the repository and how the log was obtained, not on APS.
+The verifier checks the package's signatures, record bindings and delegated authority
+against the supplied evidence and independently trusted keys. It does not establish that
+every action was recorded, that a permit was consumed exactly once, or that the repository
+performed the share. A package with one entry removed and its id recomputed still verifies
+(case D19), and the verifier says so in its output. Approval consumption is state held by
+the gateway, which the package does not carry.
+
+`reconcile.ts` compares the package with the repository's supplied share log in both
+directions. A share the gateway recorded must be in the log, and a share in the log with no
+APS permit is reported as a share that did not go through this gateway. That is how the
+removed entry in D19 shows up. It does not establish that the log is complete or truthful.
+That depends on the repository and how the log was obtained.
 
 It also does not show that no revocation existed which the package does not carry, that
 the gateway's clock was right, or that the gateway handled requests it did not export.
@@ -156,3 +177,6 @@ verifier (`verify-package.ts`) and the reconciliation (`reconcile.ts`).
 | D14 | A root the verifier does not trust fails every permit |
 | D15 | The verifier and reconciler load no gateway, actor, repository or export code |
 | D16 | A gateway with a policy bug signs a permit beyond scope, and the verifier refuses it |
+| D17 | A result forged with a retired key and backdated: accepted as signer-asserted, refused once the key is marked compromised, accepted again only for the genuine package anchored before the compromise |
+| D18 | The bytes change while the share is running: the repository refuses and nothing is shared |
+| D19 | A package with an entry removed still verifies and reconciliation reports the missing share. A duplicated entry is refused. |

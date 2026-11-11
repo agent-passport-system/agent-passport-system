@@ -25,10 +25,18 @@
 //   - for a refusal citing revocation: the package holds a verified revocation that took
 //     effect at or before that time
 //
-// What this does not establish: that the repository actually shared anything, which is
-// what reconcile.ts checks against the repository's own log. It also does not show that no
-// revocation existed which the package does not carry, that the gateway's clock was right,
-// or that the gateway ran its checks honestly on requests it did not export.
+// Record times. Every timestamp in the package is asserted by the party that signed it.
+// Unless the verifier holds an anchor for this package (a content system's own record of
+// when it stored it), time_basis is "signer_asserted": a valid signature under a retired
+// key shows the key signed the record, not when. A key the trusted file marks compromised
+// is refused unless the package is anchored before the compromise.
+//
+// What this does not establish: that the package holds every action the gateway decided
+// (a package with an entry removed and its id recomputed still verifies), that an approval
+// was used exactly once, or that the repository performed a share. reconcile.ts compares
+// the package with the repository's own log, which is only as complete and truthful as
+// that log. It also does not show that no revocation existed which the package does not
+// carry, or that the gateway's clock was right.
 
 import { readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
@@ -40,11 +48,23 @@ import type { AuthorityDelegationV1 } from 'agent-passport-system'
 import { DOCUMENT_SHARE_ACTION_TYPE, shareScope, shareTarget, validateSharePayload } from './document-rules.ts'
 import { EVIDENCE_PACKAGE_PROFILE, computePackageId, receiptIndex } from './package-format.ts'
 import type { EvidenceEntry, EvidencePackage } from './package-format.ts'
-import { keyFingerprint, receiptKeyResolver, verificationKeyResolver } from './trust.ts'
+import { beforeCompromise, keyFingerprint, receiptKeyResolver, verificationKeyResolver } from './trust.ts'
 import type { TrustedKeys } from './trust.ts'
 
 export interface EntryCheck { entry_id: string; label: string; ok: boolean; errors: string[] }
-export interface PackageCheck { ok: boolean; package_id: string; errors: string[]; entries: EntryCheck[] }
+export interface PackageCheck {
+  ok: boolean
+  package_id: string
+  /** "anchored" when the verifier holds a content-system record of this package from before
+   *  the stated time, otherwise "signer_asserted". */
+  time_basis: { kind: 'anchored'; recorded_at: string; recorded_by: string } | { kind: 'signer_asserted' }
+  errors: string[]
+  entries: EntryCheck[]
+}
+
+export const VERIFIER_LIMITS =
+  'Not established: that this package holds every action, that an approval was used exactly once, ' +
+  'or that the repository performed a share.'
 
 const same = (a: unknown, b: unknown): boolean => {
   try {
@@ -57,9 +77,6 @@ const sha256Hex = (s: string): string => createHash('sha256').update(s, 'utf8').
 
 export function verifyPackage(pkg: EvidencePackage, trusted: TrustedKeys): PackageCheck {
   const errors: string[] = []
-  const resolveReceipt = receiptKeyResolver(trusted.keys)
-  const resolveMethod = verificationKeyResolver(trusted.keys)
-
   if (pkg?.profile !== EVIDENCE_PACKAGE_PROFILE) errors.push('package_profile_unknown')
   let packageId = ''
   try {
@@ -69,12 +86,30 @@ export function verifyPackage(pkg: EvidencePackage, trusted: TrustedKeys): Packa
   }
   if (pkg.package_id !== packageId) errors.push('package_id_mismatch')
 
+  // An anchor counts only for the id recomputed from the content, never the claimed one.
+  const anchor = (trusted.anchors ?? [])
+    .filter(a => packageId !== '' && a.package_id === packageId && Number.isFinite(Date.parse(a.recorded_at)))
+    .sort((a, b) => Date.parse(a.recorded_at) - Date.parse(b.recorded_at))[0]
+  const time_basis: PackageCheck['time_basis'] = anchor
+    ? { kind: 'anchored', recorded_at: anchor.recorded_at, recorded_by: anchor.recorded_by }
+    : { kind: 'signer_asserted' }
+  const resolveReceipt = receiptKeyResolver(trusted.keys, anchor?.recorded_at)
+  const resolveMethod = verificationKeyResolver(trusted.keys, anchor?.recorded_at)
+
+  const seen = new Set<string>()
+  for (const e of pkg.entries ?? []) {
+    if (seen.has(e.entry_id)) errors.push(`duplicate_entry:${e.entry_id}`)
+    seen.add(e.entry_id)
+  }
+
   for (const k of pkg.key_resolution ?? []) {
     const name = `${k.signer}#${k.key_id}`
     if (k.fingerprint !== keyFingerprint(k.public_key)) errors.push(`key_fingerprint_mismatch:${name}`)
     const t = trusted.keys.find(x => x.signer === k.signer && x.key_id === k.key_id)
+    // The windows in the package are what the producer knew at export. A key retired
+    // later legitimately differs, so only the trusted windows are used.
     if (!t || t.public_key !== k.public_key) errors.push(`key_not_trusted:${name}`)
-    else if (t.valid_from !== k.valid_from || t.valid_until !== k.valid_until) errors.push(`key_window_differs_from_trusted:${name}`)
+    else if (!beforeCompromise(t, t.valid_from, anchor?.recorded_at)) errors.push(`key_compromised_without_prior_anchor:${name}`)
   }
 
   const byId = new Map<string, AuthorityDelegationV1>()
@@ -96,7 +131,7 @@ export function verifyPackage(pkg: EvidencePackage, trusted: TrustedKeys): Packa
   }
 
   const entries = (pkg.entries ?? []).map(e => verifyEntry(e, pkg, trusted, resolveReceipt, resolveMethod, byId, revokedBy))
-  return { ok: errors.length === 0 && entries.every(e => e.ok), package_id: pkg.package_id, errors, entries }
+  return { ok: errors.length === 0 && entries.every(e => e.ok), package_id: pkg.package_id, time_basis, errors, entries }
 }
 
 function verifyEntry(
@@ -218,6 +253,10 @@ function main(packagePath: string, keysPath: string): number {
   for (const e of c.entries) console.log(`${e.ok ? 'VALID  ' : 'INVALID'} ${e.label}${e.ok ? '' : ' :: ' + e.errors.join(', ')}`)
   const good = c.entries.filter(e => e.ok).length
   console.log(`${good} of ${c.entries.length} entries verified, ${c.errors.length} package errors`)
+  console.log(c.time_basis.kind === 'anchored'
+    ? `Record times: package anchored by ${c.time_basis.recorded_by} at ${c.time_basis.recorded_at}.`
+    : 'Record times: as asserted by their signers. No independent anchor was supplied.')
+  console.log(VERIFIER_LIMITS)
   return c.ok ? 0 : 1
 }
 

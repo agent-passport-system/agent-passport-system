@@ -72,6 +72,8 @@ export interface World {
   rotateGatewayKey: () => string
   trustedKeys: () => TrustedKeys
   exportPackage: () => EvidencePackage
+  /** Test only: a private key, to model an attacker who obtained it. */
+  leakedKey: (signer: string, keyId: string) => string
 }
 
 export function authorityBody(
@@ -217,5 +219,6 @@ export function createWorld(opts: {
   return {
     clock, repository, gateway, keys, digest, grantToA, delegations, revocations, records,
     share, delegate, request, run, revokeRoot, rotateGatewayKey, trustedKeys, exportPackage,
+    leakedKey: (signer, keyId) => priv[signer][keyId],
   }
 }
