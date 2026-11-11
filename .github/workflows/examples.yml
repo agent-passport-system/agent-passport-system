@@ -1,0 +1,82 @@
+name: Examples
+
+# Runs the runnable examples on Linux from a clean install: their test suites, the demo
+# walkthroughs and the offline verification of the records each demo writes. The examples
+# install agent-passport-system from npm, so this checks them against the published package,
+# not against the source in this repository.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "examples/payment-authority/**"
+      - "examples/document-authority/**"
+      - ".github/workflows/examples.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "examples/payment-authority/**"
+      - "examples/document-authority/**"
+      - ".github/workflows/examples.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  payment-authority:
+    name: payment-authority (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22", "24"]
+    defaults:
+      run:
+        working-directory: examples/payment-authority
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          # The repository root declares npm ^10 in devEngines. Automatic caching reads
+          # it and fails on Node 24, which ships npm 11. The examples have their own
+          # package.json and need no cache.
+          package-manager-cache: false
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run demo
+      - run: npm run verify
+
+  document-authority:
+    name: document-authority (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22", "24"]
+    defaults:
+      run:
+        working-directory: examples/document-authority
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          # The repository root declares npm ^10 in devEngines. Automatic caching reads
+          # it and fails on Node 24, which ships npm 11. The examples have their own
+          # package.json and need no cache.
+          package-manager-cache: false
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run demo
+      - run: npm run verify
+      - run: npm run reconcile
