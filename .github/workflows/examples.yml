@@ -2,7 +2,8 @@ name: Examples
 
 # Runs the runnable examples on Linux from a clean install: their test suites, the demo
 # walkthroughs and the offline verification of the records each demo writes, plus a
-# typecheck of the shared engine both examples install from examples/authority-engine.
+# typecheck of the shared engine both examples install from examples/authority-engine, and
+# the governance attestation reference verifier, whose test also checks that spec §4 embeds it.
 # The examples install agent-passport-system from npm, so this checks them against the
 # published package, not against the source in this repository.
 
@@ -13,6 +14,8 @@ on:
       - "examples/authority-engine/**"
       - "examples/payment-authority/**"
       - "examples/document-authority/**"
+      - "examples/governance-attestation-verifier/**"
+      - "specs/governance-attestation-schema.md"
       - ".github/workflows/examples.yml"
   pull_request:
     branches: [main]
@@ -20,6 +23,8 @@ on:
       - "examples/authority-engine/**"
       - "examples/payment-authority/**"
       - "examples/document-authority/**"
+      - "examples/governance-attestation-verifier/**"
+      - "specs/governance-attestation-schema.md"
       - ".github/workflows/examples.yml"
   workflow_dispatch: {}
 
@@ -108,3 +113,27 @@ jobs:
       - run: npm run demo
       - run: npm run verify
       - run: npm run reconcile
+
+  governance-attestation-verifier:
+    name: governance-attestation-verifier (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22", "24"]
+    defaults:
+      run:
+        working-directory: examples/governance-attestation-verifier
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          # Same reason as above: the example has its own package.json and needs no cache.
+          package-manager-cache: false
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test

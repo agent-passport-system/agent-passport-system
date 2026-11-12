@@ -1,0 +1,18 @@
+{
+  "name": "aps-example-governance-attestation-verifier",
+  "private": true,
+  "type": "module",
+  "description": "Reference verifier for the governance_attestation signal, draft v0.1 erratum 1. Depends on jose only.",
+  "scripts": {
+    "test": "node --import tsx --test verify.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "jose": "6.2.12"
+  },
+  "devDependencies": {
+    "@types/node": "25.5.0",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3"
+  }
+}
