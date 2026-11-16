@@ -131,6 +131,7 @@ export async function verifyApsA2AAgentCardV1(
   const legacyB64 = base64url(Buffer.from(canonicalizeJCS(unsigned), 'utf8'))
   let unresolvedKey = false
   let verifiedSignature = false
+  let verifiedLegacySignature = false
   let payloadForm: 'a2a_1_0' | 'legacy_as_served' = 'a2a_1_0'
   for (const signature of card.signatures ?? []) {
     let header: Record<string, unknown>
@@ -162,10 +163,12 @@ export async function verifyApsA2AAgentCardV1(
     }
     if (legacyB64 !== payloadB64 &&
       verify(`${signature.protected}.${legacyB64}`, signatureHex, resolution.public_key_hex)) {
-      verifiedSignature = true
-      payloadForm = 'legacy_as_served'
-      break
+      verifiedLegacySignature = true
     }
+  }
+  if (!verifiedSignature && verifiedLegacySignature) {
+    verifiedSignature = true
+    payloadForm = 'legacy_as_served'
   }
   if (!verifiedSignature) {
     return result(

@@ -64,19 +64,19 @@ function prune(value: unknown, message: string | null): unknown {
   if (Array.isArray(value)) return value.map((entry) => prune(entry, message))
   if (!isPlainObject(value)) return value
   const fields = A2A_1_0_FIELDS[message] ?? {}
-  const out: Record<string, unknown> = {}
+  const entries: [string, unknown][] = []
   for (const [name, entry] of Object.entries(value)) {
     const spec = Object.prototype.hasOwnProperty.call(fields, name) ? fields[name] : undefined
     if (spec === undefined) {
-      out[name] = entry
+      entries.push([name, entry])
       continue
     }
     const [kind, child] = spec
     if (kind === 'implicit' && isImplicitDefault(entry)) continue
     if (kind === 'repeated' && isEmptyRepeated(entry)) continue
-    out[name] = prune(entry, child)
+    entries.push([name, prune(entry, child)])
   }
-  return out
+  return Object.fromEntries(entries)
 }
 
 /** The card without `signatures` and without A2A 1.0 default values, ready for JCS. */

@@ -137,6 +137,42 @@ describe('A2A 1.0 section 8.4.1 signing input', () => {
     assert.equal(result.code, 'A2A_SIGNATURE_INVALID')
   })
 
+  it('keeps unknown __proto__ JSON members bound at top level and in nested messages', async () => {
+    const { a2aCardSigningObjectV1 } = await import('../src/profiles/a2a/card-presence.js')
+    for (const location of ['top', 'capabilities']) {
+      const { agent, kid, params, base, options } = fixture()
+      const card = attachApsIdentityExtensionV1({ ...base, skills: [{ id: 's', name: 's', description: 's', tags: ['t'] }] }, params)
+      const target = location === 'top' ? card : card.capabilities
+      Object.defineProperty(target, '__proto__', { value: { marker: 'original' }, enumerable: true, writable: true, configurable: true })
+      const signingObject = a2aCardSigningObjectV1(card)
+      const normalized = location === 'top' ? signingObject : signingObject.capabilities as Record<string, unknown>
+      assert.equal(Object.hasOwn(normalized, '__proto__'), true)
+      const signed = signA2AAgentCardV1(card, agent.privateKey, kid)
+      assert.equal((await verifyApsA2AAgentCardV1(signed, options)).state, 'valid')
+      const mutated = JSON.parse(JSON.stringify(signed))
+      const changed = location === 'top' ? mutated : mutated.capabilities
+      changed.__proto__.marker = 'changed'
+      assert.equal((await verifyApsA2AAgentCardV1(mutated, options)).code, 'A2A_SIGNATURE_INVALID')
+    }
+  })
+
+  it('prefers a current-form signature regardless of signature order', async () => {
+    const { canonicalizeJCS, canonicalizeJCSForWrite } = await import('../src/core/canonical-jcs.js')
+    const { sign } = await import('../src/crypto/keys.js')
+    const { agent, kid, params, base, options } = fixture()
+    const card = attachApsIdentityExtensionV1(base, params)
+    ;(card.capabilities.extensions![0] as Record<string, unknown>).required = false
+    const current = signA2AAgentCardV1(card, agent.privateKey, kid).signatures![0]
+    const protectedB64 = Buffer.from(canonicalizeJCSForWrite({ alg: 'EdDSA', kid, typ: 'JOSE' }), 'utf8').toString('base64url')
+    const payloadB64 = Buffer.from(canonicalizeJCS(card), 'utf8').toString('base64url')
+    const legacy = { protected: protectedB64, signature: Buffer.from(sign(`${protectedB64}.${payloadB64}`, agent.privateKey), 'hex').toString('base64url') }
+    for (const signatures of [[legacy, current], [current, legacy]]) {
+      const verified = await verifyApsA2AAgentCardV1({ ...card, signatures }, options)
+      assert.equal(verified.state, 'valid')
+      assert.equal(verified.payload_form, 'a2a_1_0')
+    }
+  })
+
   it('still verifies a card signed over the served form by earlier releases', async () => {
     const { agent, kid, params, base, options } = fixture()
     const { canonicalizeJCS, canonicalizeJCSForWrite } = await import('../src/core/canonical-jcs.js')
