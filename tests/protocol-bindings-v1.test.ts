@@ -173,6 +173,71 @@ describe('A2A 1.0 section 8.4.1 signing input', () => {
     }
   })
 
+  it('keeps malformed defaults distinct from declared A2A field defaults', async () => {
+    const { agent, kid, params, base, options } = fixture()
+    for (const field of ['tenant', 'required', 'securityRequirements', 'securitySchemes']) {
+      const card = attachApsIdentityExtensionV1(base, params)
+      const target: Record<string, unknown> = field === 'tenant'
+        ? card.supportedInterfaces[0]
+        : field === 'required' ? card.capabilities.extensions![0] as Record<string, unknown> : card
+      const defaultValue = field === 'tenant' ? '' : field === 'required' ? false : field === 'securitySchemes' ? {} : []
+      target[field] = defaultValue
+      const signed = signA2AAgentCardV1(card, agent.privateKey, kid)
+      assert.equal((await verifyApsA2AAgentCardV1(signed, options)).state, 'valid')
+      const replacements = field === 'tenant' ? [false, 0] : field === 'required' ? ['', 0] : field === 'securitySchemes' ? [[]] : [{}]
+      for (const replacement of replacements) {
+        const changed = JSON.parse(JSON.stringify(signed))
+        const changedTarget = field === 'tenant' ? changed.supportedInterfaces[0]
+          : field === 'required' ? changed.capabilities.extensions[0] : changed
+        changedTarget[field] = replacement
+        assert.equal((await verifyApsA2AAgentCardV1(changed, options)).code, 'A2A_SIGNATURE_INVALID')
+      }
+    }
+  })
+
+  it('omits empty OAuth scope maps while preserving populated maps and malformed lists', async () => {
+    const { a2aCardSigningObjectV1 } = await import('../src/profiles/a2a/card-presence.js')
+    for (const flow of ['implicit', 'password']) {
+      for (const scopes of [{}, { read: 'Read access' }, []]) {
+        const input = { securitySchemes: { oauth: { oauth2SecurityScheme: { flows: { [flow]: { scopes } } } } } }
+        const output = a2aCardSigningObjectV1(input) as typeof input
+        const normalized = output.securitySchemes.oauth.oauth2SecurityScheme.flows[flow]
+        assert.equal(Object.hasOwn(normalized, 'scopes'), Array.isArray(scopes) || Object.keys(scopes).length > 0)
+        if (Object.hasOwn(normalized, 'scopes')) assert.deepEqual(normalized.scopes, scopes)
+      }
+    }
+  })
+
+  it('keeps a verified legacy signature when another key lookup fails', async () => {
+    const { canonicalizeJCS, canonicalizeJCSForWrite } = await import('../src/core/canonical-jcs.js')
+    const { sign } = await import('../src/crypto/keys.js')
+    const { agent, kid, params, base, options } = fixture()
+    const card = attachApsIdentityExtensionV1(base, params)
+    ;(card.capabilities.extensions![0] as Record<string, unknown>).required = false
+    const protectedB64 = Buffer.from(canonicalizeJCSForWrite({ alg: 'EdDSA', kid, typ: 'JOSE' }), 'utf8').toString('base64url')
+    const payloadB64 = Buffer.from(canonicalizeJCS(card), 'utf8').toString('base64url')
+    const legacy = { protected: protectedB64, signature: Buffer.from(sign(`${protectedB64}.${payloadB64}`, agent.privateKey), 'hex').toString('base64url') }
+    const unavailable = {
+      protected: Buffer.from(canonicalizeJCSForWrite({ alg: 'EdDSA', kid: `${params.agent_id}#unavailable`, typ: 'JOSE' }), 'utf8').toString('base64url'),
+      signature: legacy.signature,
+    }
+    for (const asyncFailure of [false, true]) {
+      const resolve_key = ({ verification_method }: { verification_method: string }) => {
+        if (verification_method === kid) return options.resolve_key()
+        if (asyncFailure) return Promise.reject(new Error('network failed'))
+        throw new Error('network failed')
+      }
+      for (const signatures of [[legacy, unavailable], [unavailable, legacy]]) {
+        const verified = await verifyApsA2AAgentCardV1({ ...card, signatures }, { ...options, resolve_key })
+        assert.equal(verified.state, 'valid')
+        assert.equal(verified.payload_form, 'legacy_as_served')
+      }
+      const unresolved = await verifyApsA2AAgentCardV1({ ...card, signatures: [unavailable] }, { ...options, resolve_key })
+      assert.equal(unresolved.state, 'indeterminate')
+      assert.equal(unresolved.code, 'A2A_SIGNING_KEY_UNREACHABLE')
+    }
+  })
+
   it('still verifies a card signed over the served form by earlier releases', async () => {
     const { agent, kid, params, base, options } = fixture()
     const { canonicalizeJCS, canonicalizeJCSForWrite } = await import('../src/core/canonical-jcs.js')

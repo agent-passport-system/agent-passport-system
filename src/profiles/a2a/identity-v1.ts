@@ -144,11 +144,17 @@ export async function verifyApsA2AAgentCardV1(
     } catch {
       continue
     }
-    const resolution = await options.resolve_key({
-      controller: params.agent_id,
-      verification_method: String(header.kid),
-      at: params.issued_at,
-    })
+    let resolution: Awaited<ReturnType<HistoricalKeyResolver>>
+    try {
+      resolution = await options.resolve_key({
+        controller: params.agent_id,
+        verification_method: String(header.kid),
+        at: params.issued_at,
+      })
+    } catch {
+      unresolvedKey = true
+      continue
+    }
     if (resolution.state === 'unreachable') unresolvedKey = true
     if (resolution.state !== 'resolved' || !resolution.public_key_hex) continue
     let signatureHex: string
