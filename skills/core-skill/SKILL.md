@@ -103,7 +103,7 @@ Loaded on demand, not inlined here:
 
 ```bash
 npm install agent-passport-system        # SDK, /core subpath is the curated default
-npm install agent-passport-system-mcp    # MCP server, APS_PROFILE=essential is the default
+npm install agent-passport-system-mcp    # MCP server, all 154 tools by default, APS_PROFILE=essential for 28
 ```
 
 Remote MCP, zero install: `https://mcp.aeoess.com/sse`. Full operational

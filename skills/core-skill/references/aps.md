@@ -38,7 +38,7 @@ with others at all; that is the capability, not a constraint on it.
 
 ```bash
 npm install agent-passport-system        # SDK, /core subpath is the curated default
-npm install agent-passport-system-mcp    # MCP server, APS_PROFILE=essential is the default
+npm install agent-passport-system-mcp    # MCP server, all 154 tools by default, APS_PROFILE=essential for 28
 ```
 
 Remote MCP, zero install: `https://mcp.aeoess.com/sse`
@@ -71,8 +71,8 @@ the same cadence as the SDK and MCP. Re-pull to receive new capability.
 - The test suite, MCP tool count, and current SDK / MCP / Python versions
   are published at the repository and npm; this skill does not hardcode
   them so it cannot drift
-- The `essential` MCP profile is the default; the full protocol surface is
-  available under `APS_PROFILE=full`
+- The `full` MCP profile is the default and carries the full protocol surface.
+  `APS_PROFILE=essential` selects a 28-tool subset
 - Apache-2.0
 
 ## Links

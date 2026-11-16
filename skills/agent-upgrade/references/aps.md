@@ -21,7 +21,7 @@ This skill does not grant the agent autonomy from its principal. The agent still
 
 ```bash
 npm install agent-passport-system        # SDK, /core subpath is the curated default
-npm install agent-passport-system-mcp    # MCP server, APS_PROFILE=essential is the default
+npm install agent-passport-system-mcp    # MCP server, all 154 tools by default, APS_PROFILE=essential for 28
 ```
 
 Remote MCP, zero install: `https://mcp.aeoess.com/sse`
@@ -50,9 +50,9 @@ This skill tracks the protocol. It is version-bumped in `_meta.json` on the same
 
 - Policy evaluation under 2ms, 14 constraint dimensions per action
 - 6,289 tests in the 8.0.0 release
-- 152 MCP tools expose the full protocol surface; the `essential` profile is the default
+- 154 MCP tools expose the full protocol surface, and the `full` profile is the default
 - 9 papers, all with Zenodo DOIs
-- SDK 8.1.1 on npm, MCP 7.0.0 on npm, Python 4.3.0 on PyPI, Rust 0.3.0 on crates.io, Go v0.7.0
+- SDK 8.1.1 on npm, MCP 8.1.1 on npm, Python 4.3.0 on PyPI, Rust 0.3.0 on crates.io, Go v0.7.0
 - Apache-2.0
 
 ## Links

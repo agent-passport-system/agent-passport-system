@@ -1,6 +1,6 @@
 ---
 name: agent-passport-system
-description: "Enforcement and accountability layer for AI agents. Bring your own identity (did:key, did:web, SPIFFE, OAuth, did:aps). Gateway enforcement boundary, monotonic narrowing, cascade revocation, spending controls, data lifecycle, observation governance (telemetry scopes, derivation rights, behavioral memory). Use when agents need scoped delegation, trust scoring, constraint enforcement, or cryptographic audit trails. SDK leads with the /core subpath (24 curated functions), MCP leads with APS_PROFILE=essential (25 tools covering identity, delegation, enforcement, commerce, reputation). 6,289 tests in the 8.0.0 release. 8 framework adapters: Stripe, Composio, IBAC/Cedar, LangChain, CrewAI, MCP, A2A, Gonka. Full surface area (107 modules, 152 MCP tools) still available under APS_PROFILE=full and the root import. SDK 8.1.1 and MCP 7.0.0 are current on npm, Python 4.3.0 on PyPI, Rust 0.3.0 on crates.io, Go v0.7.0. The 3.3.1 release added Delegated Action Evidence: bilateral pair reconciliation with five mismatch classes, verifier-side revocation observation receipts under a stated freshness contract, Merkle-rooted evidence bundles with a per-axis claim-state report (verify-bundle), spec 4.1 action_ref canonicalization validated by cross-language vectors, and jurisdiction selection records that surface pack conflicts, on top of evidentiary type safety, Wave 1 accountability, Instruction Provenance Receipt, and bilateral receipts."
+description: "Enforcement and accountability layer for AI agents. Bring your own identity (did:key, did:web, SPIFFE, OAuth, did:aps). Gateway enforcement boundary, monotonic narrowing, cascade revocation, spending controls, data lifecycle, observation governance (telemetry scopes, derivation rights, behavioral memory). Use when agents need scoped delegation, trust scoring, constraint enforcement, or cryptographic audit trails. SDK leads with the /core subpath (24 curated functions), MCP offers APS_PROFILE=essential (28 tools covering identity, delegation, enforcement, commerce, reputation). 6,289 tests in the 8.0.0 release. 8 framework adapters: Stripe, Composio, IBAC/Cedar, LangChain, CrewAI, MCP, A2A, Gonka. Full surface area (107 modules, 154 MCP tools) is available under APS_PROFILE=full, the MCP default, and through the root import. SDK 8.1.1 and MCP 8.1.1 are current on npm, Python 4.3.0 on PyPI, Rust 0.3.0 on crates.io, Go v0.7.0. The 3.3.1 release added Delegated Action Evidence: bilateral pair reconciliation with five mismatch classes, verifier-side revocation observation receipts under a stated freshness contract, Merkle-rooted evidence bundles with a per-axis claim-state report (verify-bundle), spec 4.1 action_ref canonicalization validated by cross-language vectors, and jurisdiction selection records that surface pack conflicts, on top of evidentiary type safety, Wave 1 accountability, Instruction Provenance Receipt, and bilateral receipts."
 metadata:
   clawdbot:
     emoji: "🔑"
@@ -37,7 +37,7 @@ metadata:
 
 ```bash
 npm install agent-passport-system        # SDK: /core subpath is the curated default
-npm install agent-passport-system-mcp    # MCP server: APS_PROFILE=essential is the default
+npm install agent-passport-system-mcp    # MCP server, all 154 tools by default, APS_PROFILE=essential for 28
 go get github.com/aeoess/agent-passport-go@v0.7.0   # Go SDK, byte-parity subset (passport, delegation, attribution, completion, in-toto, values)
 pip install agent-passport-system==4.3.0             # Python SDK
 cargo add agent-passport-system@0.3.0                # Rust SDK, library crate agent_passport
@@ -52,7 +52,7 @@ import {
 } from 'agent-passport-system/core'
 ```
 
-Minimal MCP install (essential profile is the default; `APS_PROFILE=full` for all 152 tools):
+MCP install (the default `full` profile has all 154 tools, and `APS_PROFILE=essential` gives 28):
 
 ```bash
 npx agent-passport-system-mcp
@@ -196,12 +196,12 @@ Grade travels with the passport. Any consumer reads it without understanding sco
 
 - **Enforcement and accountability layer**: bring your own identity, gateway does the rest
 - **SDK `/core` subpath**: 24 curated functions for 90% of integrations
-- **MCP `essential` profile**: 25 tools by default (identity, delegation, enforcement, commerce, reputation)
+- **MCP `essential` profile**: 28 tools with `APS_PROFILE=essential` (identity, delegation, enforcement, commerce, reputation)
 - **Policy eval <2ms**, 403 ops/sec, 14 constraint dimensions
 - **6,289 tests in the 8.0.0 release**, including 38 adversarial scenarios. These are a developer-authored internal evaluation, not an independent red-team or neutral third-party adversarial harness.
 - **Zero heavy dependencies**: Node.js crypto + uuid only
 - **Apache-2.0** license
-- *Full surface area: 107 modules, 152 MCP tools, available under `APS_PROFILE=full` and the root `agent-passport-system` import.*
+- *Full surface area: 107 modules, 154 MCP tools, available under `APS_PROFILE=full` (the MCP default) and the root `agent-passport-system` import.*
 
 ## Links
 
