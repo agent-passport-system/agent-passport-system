@@ -1,5 +1,13 @@
 # Changelog
 
+## 8.1.0 (2026-11-16)
+
+- The A2A identity profile signs Agent Cards over the A2A 1.0 section 8.4.1 form. Before JCS, `signA2AAgentCardV1` removes a field's Protocol Buffer default when the field is neither REQUIRED nor marked `optional`, and removes empty repeated fields. REQUIRED fields, present `optional` fields, selected oneof members even when empty, members A2A 1.0 does not define, and the contents of extension `params` stay covered. A default is removed only when the value has the field's declared type, so a malformed value such as `required: 0` stays signed. The field table is generated from `specification/a2a.proto` v1.0.1 and exported as `a2aCardSigningObjectV1`.
+- `verifyApsA2AAgentCardV1` checks every signature for the A2A 1.0 form first, then accepts a signature over the card as served, which earlier releases produced. The new optional `payload_form` result reports `a2a_1_0` or `legacy_as_served`. A key lookup that fails for one signature no longer discards a signature already verified.
+- `attachApsIdentityExtensionV1` writes `required` only when it is true.
+
+Compatibility: 8.1.0 verifies cards signed by earlier APS releases. Earlier APS verifiers may reject a new card that still contains a removable default value, such as an empty `supportedInterfaces[].tenant`. A new card without such values has the same signing bytes under both forms. Callers that require the A2A 1.0 signing rule should accept a valid result only when `payload_form === 'a2a_1_0'`.
+
 ## 8.0.1 (2026-10-15)
 
 - The Cycles rail is exported from the package root: `signCyclesPermitReceipt`, `verifyCyclesPermitReceipt`, the release and denial functions, the `WithDID` and `WithEvidence` variants, `mapCyclesDenialToFoundation`, `resolveEvidenceRef`, `recomputeEvidenceContentHash`, `toEvidenceDescriptorInput`, the claim type and version constants, and their types. Before this release they were reachable only from source, because the root did not export them and the `exports` map blocks the `dist` path. This includes the 8.0.0 correspondence check, which npm users could not call until now. No behaviour changes.

@@ -2,3 +2,4 @@
 // SPDX-License-Identifier: Apache-2.0
 
 export * from './identity-v1.js'
+export * from './card-presence.js'

@@ -3,6 +3,7 @@
 
 import { createHash } from 'node:crypto'
 import { canonicalizeJCS, canonicalizeJCSForWrite } from '../../core/canonical-jcs.js'
+import { a2aCardSigningObjectV1 } from './card-presence.js'
 import { sign, verify } from '../../crypto/keys.js'
 import type { HistoricalKeyResolver } from '../../v2/identity-binding/types.js'
 import {
@@ -43,6 +44,12 @@ export interface A2AApsIdentityVerification {
   card_signature: 'verified' | 'rejected' | 'unresolved'
   passport: 'resolved' | 'mismatch' | 'unresolved'
   principal_binding: 'resolved' | 'mismatch' | 'unresolved' | 'absent'
+  /**
+   * Which signing input verified. `a2a_1_0` is the A2A 1.0 section 8.4.1 form,
+   * without default values. `legacy_as_served` is the card as served, which
+   * releases before this change signed when the card carried a default value.
+   */
+  payload_form?: 'a2a_1_0' | 'legacy_as_served'
 }
 
 export function attachApsIdentityExtensionV1(
@@ -62,7 +69,9 @@ export function attachApsIdentityExtensionV1(
       extensions: [...existing, {
         uri: APS_A2A_IDENTITY_EXTENSION,
         description: 'APS verifiable agent identity and principal-binding references',
-        required,
+        // A2A 1.0 section 8.4.1 omits `required: false` from the signing input,
+        // so it is only written when true.
+        ...(required ? { required: true } : {}),
         params,
       }],
     },
@@ -83,7 +92,7 @@ export function signA2AAgentCardV1(
   if (!kid.startsWith(`${extension.agent_id}#`)) throw new Error('A2A signature kid is not controlled by agent_id')
   const protectedHeader = canonicalizeJCSForWrite({ alg: 'EdDSA', kid, typ: 'JOSE' })
   const protectedB64 = base64url(Buffer.from(protectedHeader, 'utf8'))
-  const payloadB64 = base64url(Buffer.from(canonicalizeJCS(unsigned), 'utf8'))
+  const payloadB64 = base64url(Buffer.from(canonicalizeJCS(a2aCardSigningObjectV1(unsigned)), 'utf8'))
   const signatureHex = sign(`${protectedB64}.${payloadB64}`, privateKeyHex)
   const signature: A2AAgentCardSignature = {
     protected: protectedB64,
@@ -118,9 +127,12 @@ export async function verifyApsA2AAgentCardV1(
   }
 
   const unsigned = withoutSignatures(card)
-  const payloadB64 = base64url(Buffer.from(canonicalizeJCS(unsigned), 'utf8'))
+  const payloadB64 = base64url(Buffer.from(canonicalizeJCS(a2aCardSigningObjectV1(unsigned)), 'utf8'))
+  const legacyB64 = base64url(Buffer.from(canonicalizeJCS(unsigned), 'utf8'))
   let unresolvedKey = false
   let verifiedSignature = false
+  let verifiedLegacySignature = false
+  let payloadForm: 'a2a_1_0' | 'legacy_as_served' = 'a2a_1_0'
   for (const signature of card.signatures ?? []) {
     let header: Record<string, unknown>
     try {
@@ -132,11 +144,17 @@ export async function verifyApsA2AAgentCardV1(
     } catch {
       continue
     }
-    const resolution = await options.resolve_key({
-      controller: params.agent_id,
-      verification_method: String(header.kid),
-      at: params.issued_at,
-    })
+    let resolution: Awaited<ReturnType<HistoricalKeyResolver>>
+    try {
+      resolution = await options.resolve_key({
+        controller: params.agent_id,
+        verification_method: String(header.kid),
+        at: params.issued_at,
+      })
+    } catch {
+      unresolvedKey = true
+      continue
+    }
     if (resolution.state === 'unreachable') unresolvedKey = true
     if (resolution.state !== 'resolved' || !resolution.public_key_hex) continue
     let signatureHex: string
@@ -149,6 +167,14 @@ export async function verifyApsA2AAgentCardV1(
       verifiedSignature = true
       break
     }
+    if (legacyB64 !== payloadB64 &&
+      verify(`${signature.protected}.${legacyB64}`, signatureHex, resolution.public_key_hex)) {
+      verifiedLegacySignature = true
+    }
+  }
+  if (!verifiedSignature && verifiedLegacySignature) {
+    verifiedSignature = true
+    payloadForm = 'legacy_as_served'
   }
   if (!verifiedSignature) {
     return result(
@@ -162,6 +188,7 @@ export async function verifyApsA2AAgentCardV1(
   if (!options.resolve_artifact) {
     return {
       ...result('indeterminate', 'A2A_IDENTITY_ARTIFACTS_UNRESOLVED', 'verified', params.agent_id),
+      payload_form: payloadForm,
       passport: 'unresolved',
       principal_binding: params.principal_binding_uri ? 'unresolved' : 'absent',
     }
@@ -173,6 +200,7 @@ export async function verifyApsA2AAgentCardV1(
   if (passport === 'mismatch' || principal === 'mismatch') {
     return {
       ...result('invalid', 'A2A_IDENTITY_ARTIFACT_DIGEST_MISMATCH', 'verified', params.agent_id),
+      payload_form: payloadForm,
       passport,
       principal_binding: principal,
     }
@@ -180,6 +208,7 @@ export async function verifyApsA2AAgentCardV1(
   if (passport === 'unresolved' || principal === 'unresolved') {
     return {
       ...result('indeterminate', 'A2A_IDENTITY_ARTIFACT_UNREACHABLE', 'verified', params.agent_id),
+      payload_form: payloadForm,
       passport,
       principal_binding: principal,
     }
@@ -191,6 +220,7 @@ export async function verifyApsA2AAgentCardV1(
     card_signature: 'verified',
     passport,
     principal_binding: principal,
+    payload_form: payloadForm,
   }
 }
 
