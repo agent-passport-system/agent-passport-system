@@ -1,5 +1,9 @@
 # Changelog
 
+## 8.1.1 (2026-11-16)
+
+- 8.1.0 was tagged but never published. The release workflow's `npm audit --audit-level=high` step failed on GHSA-mrhx-c7xc-m3w5 in zod 4.6.5, so the publish and release jobs did not run. zod is a development dependency only and is not shipped in the package. This release moves it to 4.6.7. The library code is the same as the 8.1.0 tag, so the 8.1.0 notes below describe this release.
+
 ## 8.1.0 (2026-11-16)
 
 - The A2A identity profile signs Agent Cards over the A2A 1.0 section 8.4.1 form. Before JCS, `signA2AAgentCardV1` removes a field's Protocol Buffer default when the field is neither REQUIRED nor marked `optional`, and removes empty repeated fields. REQUIRED fields, present `optional` fields, selected oneof members even when empty, members A2A 1.0 does not define, and the contents of extension `params` stay covered. A default is removed only when the value has the field's declared type, so a malformed value such as `required: 0` stays signed. The field table is generated from `specification/a2a.proto` v1.0.1 and exported as `a2aCardSigningObjectV1`.
