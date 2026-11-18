@@ -5,8 +5,8 @@
 // ══════════════════════════════════════════════════════════════════
 // Implements PaymentRail over the x402 v1 protocol on Base mainnet
 // with USDC as the asset. Settlement runs through a caller-supplied
-// facilitator (Coinbase's public CDP facilitator at
-// https://api.cdp.coinbase.com/x402 by default, or any compatible
+// facilitator (the Coinbase CDP facilitator at
+// https://api.cdp.coinbase.com/platform/v2/x402, or any compatible
 // implementation).
 //
 // Flow:
@@ -426,15 +426,16 @@ export function createX402Rail(config: X402RailConfig): X402PaymentRail {
   return new X402PaymentRail(config)
 }
 
-/** Default Coinbase CDP facilitator endpoint. The free public tier
- *  supports verification on the EIP-3009 USDC scheme without an API
- *  key (subject to Coinbase's published rate limits, currently
- *  ~1K tx/mo). For higher throughput or non-USDC assets a CDP API key
- *  is required and the caller should wire authorization headers
- *  inside their FacilitatorVerify / FacilitatorSettle implementations.
- *  The rail accepts any compatible facilitator URL — pin via the
- *  closure, do not embed in the rail. */
-export const DEFAULT_FACILITATOR_URL = 'https://api.cdp.coinbase.com/x402'
+/** Coinbase CDP facilitator base URL, as documented in the CDP x402
+ *  docs (verify, settle and supported live under this base). The CDP
+ *  facilitator requires CDP API keys, so the caller wires the
+ *  authorization headers inside their FacilitatorVerify /
+ *  FacilitatorSettle implementations. For keyless testnet use, the
+ *  x402.org facilitator is an alternative. The rail accepts any
+ *  compatible facilitator URL. Pin it via the closure, do not embed
+ *  it in the rail. This rail builds x402 version 1 payloads, and this
+ *  constant does not by itself make the rail speak x402 version 2. */
+export const DEFAULT_FACILITATOR_URL = 'https://api.cdp.coinbase.com/platform/v2/x402'
 
 /** USDC contract on Base mainnet (eip155:8453). */
 export const USDC_BASE_MAINNET = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'

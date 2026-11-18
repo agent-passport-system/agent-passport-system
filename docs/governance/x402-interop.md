@@ -38,7 +38,7 @@ rail.revokeWallet(walletId)                            // → boolean
 rail.getRequirements(invoiceId)                        // → X402PaymentRequirements | undefined
 ```
 
-Constants exposed for grounding: `DEFAULT_FACILITATOR_URL` (Coinbase CDP), `USDC_BASE_MAINNET`, `USDC_BASE_SEPOLIA`.
+Constants exposed for grounding: `DEFAULT_FACILITATOR_URL` (Coinbase CDP facilitator base URL, requires CDP API keys), `USDC_BASE_MAINNET`, `USDC_BASE_SEPOLIA`.
 
 ## V2Delegation → x402 crosswalk
 

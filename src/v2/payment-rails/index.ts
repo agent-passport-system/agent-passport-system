@@ -160,8 +160,9 @@ export type {
 // ── x402 reference adapter (Base + USDC, Coinbase facilitator) ───
 // Implements PaymentRail over the x402 v1 protocol (coinbase/x402).
 // Settles USDC on Base (eip155:8453) via the EIP-3009 'exact' scheme
-// against a caller-supplied facilitator. The Coinbase CDP public
-// facilitator URL is exported as X402_DEFAULT_FACILITATOR_URL.
+// against a caller-supplied facilitator. The Coinbase CDP facilitator
+// base URL, which needs CDP API keys, is exported as
+// X402_DEFAULT_FACILITATOR_URL. The rail does not call it on its own.
 
 export {
   createX402Rail,
