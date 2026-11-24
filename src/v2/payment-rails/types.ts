@@ -34,7 +34,11 @@ export type { ScopeOfClaim } from '../accountability/types/base.js'
 
 // ── Closed taxonomies ──────────────────────────────────────────────
 
-export type InvoiceStatus = 'pending' | 'confirmed' | 'expired' | 'failed'
+/** `settlement_unknown`: a settlement request left the rail and no
+ *  definite answer came back (timeout, lost response). The payment may
+ *  have settled. The invoice is neither failed nor payable again until
+ *  the result is resolved. */
+export type InvoiceStatus = 'pending' | 'confirmed' | 'expired' | 'failed' | 'settlement_unknown'
 
 export type DenialReason =
   | 'no_commerce_scope'

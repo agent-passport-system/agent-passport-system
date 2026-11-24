@@ -316,6 +316,353 @@ describe('X402PaymentRail — concurrent submitPayment on one invoice', () => {
   })
 })
 
+describe('X402PaymentRail — settle call throws, result unknown', () => {
+  const throwingSettle = async (): Promise<X402SettleResponse> => {
+    throw new Error('socket hang up')
+  }
+
+  it('records settlement_unknown, not failed, and refuses a second submit', async () => {
+    let settleCalls = 0
+    const rail = _rail({
+      settle: async () => {
+        settleCalls++
+        throw new Error('socket hang up')
+      },
+    })
+    const invoice = await rail.createInvoice({ amount_base_units: '1000000' })
+    const outcome = await rail.submitPayment(invoice.invoice_id, _payload())
+
+    assert.equal(outcome.verified, true)
+    assert.equal(outcome.settled, undefined)
+    assert.equal(outcome.settlementUnknown, true)
+    assert.match(outcome.settleErrorReason ?? '', /^facilitator_settle_threw: socket hang up/)
+
+    const after = await rail.checkStatus(invoice.invoice_id)
+    assert.equal(after.status, 'settlement_unknown')
+
+    await assert.rejects(rail.submitPayment(invoice.invoice_id, _payload()), /not pending/)
+    assert.equal(settleCalls, 1)
+  })
+
+  it('stays unknown past the invoice expiry time', async () => {
+    const rail = _rail({ settle: throwingSettle })
+    const invoice = await rail.createInvoice({ amount_base_units: '1000000', expires_in_seconds: 1 })
+    await rail.submitPayment(invoice.invoice_id, _payload())
+    await new Promise((r) => setTimeout(r, 1100))
+    const after = await rail.checkStatus(invoice.invoice_id)
+    assert.equal(after.status, 'settlement_unknown')
+  })
+
+  it('resolveSettlement(settled) confirms the invoice and indexes the transaction', async () => {
+    const rail = _rail({ settle: throwingSettle })
+    const invoice = await rail.createInvoice({ amount_base_units: '1000000' })
+    await rail.submitPayment(invoice.invoice_id, _payload())
+
+    const resolved = rail.resolveSettlement(invoice.invoice_id, {
+      settled: true,
+      transaction: TX_HASH,
+      payer: PAYER,
+    })
+    assert.equal(resolved.status, 'confirmed')
+    const v = await rail.verifyTransaction(TX_HASH, '1000000')
+    assert.equal(v.verified, true)
+  })
+
+  it('resolveSettlement(not settled) marks the invoice failed', async () => {
+    const rail = _rail({ settle: throwingSettle })
+    const invoice = await rail.createInvoice({ amount_base_units: '1000000' })
+    await rail.submitPayment(invoice.invoice_id, _payload())
+
+    const resolved = rail.resolveSettlement(invoice.invoice_id, {
+      settled: false,
+      reason: 'authorization_expired_unused',
+    })
+    assert.equal(resolved.status, 'failed')
+    await assert.rejects(rail.submitPayment(invoice.invoice_id, _payload()), /not pending/)
+  })
+
+  it('resolveSettlement refuses an invoice that is not unknown', async () => {
+    const rail = _rail()
+    const invoice = await rail.createInvoice({ amount_base_units: '1000000' })
+    assert.throws(
+      () => rail.resolveSettlement(invoice.invoice_id, { settled: false, reason: 'x' }),
+      /not in settlement_unknown/,
+    )
+    await rail.submitPayment(invoice.invoice_id, _payload())
+    assert.throws(
+      () => rail.resolveSettlement(invoice.invoice_id, { settled: false, reason: 'x' }),
+      /not in settlement_unknown/,
+    )
+    const after = await rail.checkStatus(invoice.invoice_id)
+    assert.equal(after.status, 'confirmed')
+  })
+
+  it('checkStatus asks the configured resolver and applies a definite answer', async () => {
+    let answer: { settled: true; transaction: string; payer: string } | undefined
+    let asked = 0
+    const rail = createX402Rail({
+      payTo: PAY_TO,
+      asset: USDC_BASE_MAINNET,
+      network: 'base',
+      resource: 'https://example.com/r',
+      facilitatorVerify: alwaysVerify(),
+      facilitatorSettle: throwingSettle,
+      settlementResolver: async () => {
+        asked++
+        return answer
+      },
+    })
+    const invoice = await rail.createInvoice({ amount_base_units: '1000000' })
+    await rail.submitPayment(invoice.invoice_id, _payload())
+
+    const first = await rail.checkStatus(invoice.invoice_id)
+    assert.equal(first.status, 'settlement_unknown')
+    answer = { settled: true, transaction: TX_HASH, payer: PAYER }
+    const second = await rail.checkStatus(invoice.invoice_id)
+    assert.equal(second.status, 'confirmed')
+    await rail.checkStatus(invoice.invoice_id)
+    assert.equal(asked, 2)
+  })
+
+  it('a resolver that throws leaves the invoice unknown', async () => {
+    const rail = createX402Rail({
+      payTo: PAY_TO,
+      asset: USDC_BASE_MAINNET,
+      network: 'base',
+      resource: 'https://example.com/r',
+      facilitatorVerify: alwaysVerify(),
+      facilitatorSettle: throwingSettle,
+      settlementResolver: async () => {
+        throw new Error('rpc down')
+      },
+    })
+    const invoice = await rail.createInvoice({ amount_base_units: '1000000' })
+    await rail.submitPayment(invoice.invoice_id, _payload())
+    const after = await rail.checkStatus(invoice.invoice_id)
+    assert.equal(after.status, 'settlement_unknown')
+  })
+
+  it('a manual resolution wins over a resolver answer that arrives later', async () => {
+    let release: (v: { settled: false; reason: string }) => void = () => {}
+    const pendingLookup = new Promise<{ settled: false; reason: string }>((r) => { release = r })
+    const rail = createX402Rail({
+      payTo: PAY_TO,
+      asset: USDC_BASE_MAINNET,
+      network: 'base',
+      resource: 'https://example.com/r',
+      facilitatorVerify: alwaysVerify(),
+      facilitatorSettle: throwingSettle,
+      settlementResolver: async () => pendingLookup,
+    })
+    const invoice = await rail.createInvoice({ amount_base_units: '1000000' })
+    await rail.submitPayment(invoice.invoice_id, _payload())
+
+    const poll = rail.checkStatus(invoice.invoice_id)
+    await new Promise((r) => setImmediate(r))
+    rail.resolveSettlement(invoice.invoice_id, { settled: true, transaction: TX_HASH, payer: PAYER })
+    release({ settled: false, reason: 'stale_lookup' })
+    const polled = await poll
+
+    assert.equal(polled.status, 'confirmed')
+    const after = await rail.checkStatus(invoice.invoice_id)
+    assert.equal(after.status, 'confirmed')
+    assert.equal((await rail.verifyTransaction(TX_HASH, '1000000')).verified, true)
+  })
+
+  it('two overlapping polls: the first definite answer stands', async () => {
+    const releases: Array<(v: { settled: true; transaction: string; payer: string } | { settled: false; reason: string }) => void> = []
+    const rail = createX402Rail({
+      payTo: PAY_TO,
+      asset: USDC_BASE_MAINNET,
+      network: 'base',
+      resource: 'https://example.com/r',
+      facilitatorVerify: alwaysVerify(),
+      facilitatorSettle: throwingSettle,
+      settlementResolver: () => new Promise((r) => { releases.push(r) }),
+    })
+    const invoice = await rail.createInvoice({ amount_base_units: '1000000' })
+    await rail.submitPayment(invoice.invoice_id, _payload())
+
+    const a = rail.checkStatus(invoice.invoice_id)
+    const b = rail.checkStatus(invoice.invoice_id)
+    await new Promise((r) => setImmediate(r))
+    assert.equal(releases.length, 2)
+    releases[1]({ settled: true, transaction: TX_HASH, payer: PAYER })
+    assert.equal((await b).status, 'confirmed')
+    releases[0]({ settled: false, reason: 'stale_lookup' })
+    assert.equal((await a).status, 'confirmed')
+    assert.equal((await rail.checkStatus(invoice.invoice_id)).status, 'confirmed')
+  })
+
+  it('a resolution cannot attribute a transaction that belongs to another invoice', async () => {
+    // first invoice settles with TX_HASH, the second on the same rail ends unknown
+    let fail = true
+    const rail2 = _rail({
+      settle: async () => {
+        if (fail) throw new Error('socket hang up')
+        return { success: true, payer: PAYER, transaction: TX_HASH, network: 'base' }
+      },
+    })
+    const first = await rail2.createInvoice({ amount_base_units: '1000000' })
+    fail = false
+    await rail2.submitPayment(first.invoice_id, _payload())
+    fail = true
+    const second = await rail2.createInvoice({ amount_base_units: '1000000' })
+    await rail2.submitPayment(second.invoice_id, _payload())
+
+    assert.throws(
+      () => rail2.resolveSettlement(second.invoice_id, { settled: true, transaction: TX_HASH, payer: PAYER }),
+      /transaction_already_attributed/,
+    )
+    assert.equal((await rail2.checkStatus(second.invoice_id)).status, 'settlement_unknown')
+    const v = await rail2.verifyTransaction(TX_HASH, '1000000')
+    assert.equal(v.verified, true)
+    assert.equal((await rail2.checkStatus(first.invoice_id)).status, 'confirmed')
+  })
+
+  it('two successful settle answers with the same transaction: the second stays unknown', async () => {
+    const rail = _rail()
+    const a = await rail.createInvoice({ amount_base_units: '1000000' })
+    const b = await rail.createInvoice({ amount_base_units: '2000000' })
+    const first = await rail.submitPayment(a.invoice_id, _payload())
+    const second = await rail.submitPayment(b.invoice_id, _payload())
+
+    assert.equal(first.settlement, 'settled')
+    assert.equal(second.settlement, 'unknown')
+    assert.equal(second.settled, undefined)
+    assert.match(second.settleErrorReason ?? '', /^transaction_already_attributed: /)
+    assert.equal((await rail.checkStatus(a.invoice_id)).status, 'confirmed')
+    const bAfter = await rail.checkStatus(b.invoice_id)
+    assert.equal(bAfter.status, 'settlement_unknown')
+    assert.equal(bAfter.metadata?.reported_tx_hash, TX_HASH)
+    assert.equal((await rail.verifyTransaction(TX_HASH, '1000000')).verified, true)
+    assert.equal((await rail.verifyTransaction(TX_HASH, '2000000')).verified, false)
+    await assert.rejects(rail.submitPayment(b.invoice_id, _payload()), /not pending/)
+  })
+
+  it('a successful settle answer without a transaction stays unknown', async () => {
+    const rail = _rail({ settle: alwaysSettle('') })
+    const invoice = await rail.createInvoice({ amount_base_units: '1000000' })
+    const outcome = await rail.submitPayment(invoice.invoice_id, _payload())
+    assert.equal(outcome.settlement, 'unknown')
+    assert.equal(outcome.settleErrorReason, 'settle_success_without_transaction')
+    assert.equal((await rail.checkStatus(invoice.invoice_id)).status, 'settlement_unknown')
+  })
+
+  it('the same hash in a different letter case is the same transaction', async () => {
+    const lower = '0x' + 'ab'.repeat(32)
+    const upper = '0x' + 'AB'.repeat(32)
+    let n = 0
+    const rail = _rail({
+      settle: async () => ({ success: true, payer: PAYER, transaction: n++ === 0 ? lower : upper, network: 'base' }),
+    })
+    const a = await rail.createInvoice({ amount_base_units: '1000000' })
+    const b = await rail.createInvoice({ amount_base_units: '2000000' })
+    const first = await rail.submitPayment(a.invoice_id, _payload())
+    const second = await rail.submitPayment(b.invoice_id, _payload())
+
+    assert.equal(first.settlement, 'settled')
+    assert.equal(first.transaction, lower)
+    assert.equal(second.settlement, 'unknown')
+    assert.match(second.settleErrorReason ?? '', /^transaction_already_attributed: /)
+    assert.equal((await rail.checkStatus(b.invoice_id)).status, 'settlement_unknown')
+    assert.equal((await rail.verifyTransaction(upper, '1000000')).verified, true)
+    assert.equal((await rail.verifyTransaction(lower, '1000000')).verified, true)
+    assert.equal((await rail.verifyTransaction(upper, '2000000')).verified, false)
+    assert.throws(
+      () => rail.resolveSettlement(b.invoice_id, { settled: true, transaction: upper, payer: PAYER }),
+      /transaction_already_attributed/,
+    )
+  })
+
+  it('a success answer with a missing or unusable transaction field stays unknown', async () => {
+    const answers: unknown[] = [undefined, null, '   ', '0x1234', 'not-a-hash', 42]
+    for (const value of answers) {
+      const rail = _rail({
+        settle: async () =>
+          ({ success: true, payer: PAYER, transaction: value, network: 'base' }) as unknown as X402SettleResponse,
+      })
+      const invoice = await rail.createInvoice({ amount_base_units: '1000000' })
+      const outcome = await rail.submitPayment(invoice.invoice_id, _payload())
+      assert.equal(outcome.settlement, 'unknown', `value ${String(value)}`)
+      assert.equal(outcome.settled, undefined)
+      assert.match(outcome.settleErrorReason ?? '', /^settle_success_(without|with_unusable)_transaction$/)
+      assert.equal((await rail.checkStatus(invoice.invoice_id)).status, 'settlement_unknown')
+    }
+  })
+
+  it('resolveSettlement refuses an unusable transaction value', async () => {
+    const rail = _rail({ settle: throwingSettle })
+    const invoice = await rail.createInvoice({ amount_base_units: '1000000' })
+    await rail.submitPayment(invoice.invoice_id, _payload())
+    assert.throws(
+      () => rail.resolveSettlement(invoice.invoice_id, { settled: true, transaction: '0xabc', payer: PAYER }),
+      /settle_success_with_unusable_transaction/,
+    )
+    assert.equal((await rail.checkStatus(invoice.invoice_id)).status, 'settlement_unknown')
+  })
+
+  it('resolveSettlement refuses a settled resolution without a transaction', async () => {
+    const rail = _rail({ settle: throwingSettle })
+    const invoice = await rail.createInvoice({ amount_base_units: '1000000' })
+    await rail.submitPayment(invoice.invoice_id, _payload())
+    assert.throws(
+      () => rail.resolveSettlement(invoice.invoice_id, { settled: true, transaction: '', payer: PAYER }),
+      /settle_success_without_transaction/,
+    )
+    assert.equal((await rail.checkStatus(invoice.invoice_id)).status, 'settlement_unknown')
+  })
+
+  it('an invoice with a settlement in flight is not reported expired', async () => {
+    let release: () => void = () => {}
+    const gate = new Promise<void>((r) => { release = r })
+    const rail = _rail({
+      settle: async () => {
+        await gate
+        return { success: true, payer: PAYER, transaction: TX_HASH, network: 'base' }
+      },
+    })
+    const invoice = await rail.createInvoice({ amount_base_units: '1000000', expires_in_seconds: 1 })
+    const submitting = rail.submitPayment(invoice.invoice_id, _payload())
+    await new Promise((r) => setTimeout(r, 1100))
+
+    const during = await rail.checkStatus(invoice.invoice_id)
+    assert.equal(during.status, 'pending')
+    release()
+    const outcome = await submitting
+    assert.equal(outcome.settlement, 'settled')
+    assert.equal((await rail.checkStatus(invoice.invoice_id)).status, 'confirmed')
+  })
+
+  it('the outcome names each settlement result', async () => {
+    const settledRail = _rail()
+    const i1 = await settledRail.createInvoice({ amount_base_units: '1000000' })
+    assert.equal((await settledRail.submitPayment(i1.invoice_id, _payload())).settlement, 'settled')
+
+    const refusedRail = _rail({ settle: neverSettle('insufficient_funds') })
+    const i2 = await refusedRail.createInvoice({ amount_base_units: '1000000' })
+    assert.equal((await refusedRail.submitPayment(i2.invoice_id, _payload())).settlement, 'refused')
+
+    const unknownRail = _rail({ settle: throwingSettle })
+    const i3 = await unknownRail.createInvoice({ amount_base_units: '1000000' })
+    assert.equal((await unknownRail.submitPayment(i3.invoice_id, _payload())).settlement, 'unknown')
+
+    const invalidRail = _rail({ verify: neverVerify('expired_authorization') })
+    const i4 = await invalidRail.createInvoice({ amount_base_units: '1000000' })
+    assert.equal((await invalidRail.submitPayment(i4.invoice_id, _payload())).settlement, 'not_attempted')
+  })
+
+  it('a definite settle refusal is still a failure', async () => {
+    const rail = _rail({ settle: neverSettle('insufficient_funds') })
+    const invoice = await rail.createInvoice({ amount_base_units: '1000000' })
+    const outcome = await rail.submitPayment(invoice.invoice_id, _payload())
+    assert.equal(outcome.settled, false)
+    assert.equal(outcome.settlementUnknown, undefined)
+    const after = await rail.checkStatus(invoice.invoice_id)
+    assert.equal(after.status, 'failed')
+  })
+})
+
 // ── submitPayment verify-fail → denial ────────────────────────────
 
 describe('X402PaymentRail — submitPayment failure → rail_error denial', () => {

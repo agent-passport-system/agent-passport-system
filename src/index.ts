@@ -1892,6 +1892,8 @@ export type {
   X402Scheme,
   X402SettleRequest,
   X402SettleResponse,
+  X402SettlementResolution,
+  X402SettlementResolver,
   X402SubmitOutcome,
   X402VerifyRequest,
   X402VerifyResponse,
