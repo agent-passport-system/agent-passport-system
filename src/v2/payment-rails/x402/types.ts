@@ -145,27 +145,60 @@ export interface X402SettleResponse {
 }
 
 /** Combined verify+settle outcome that the rail's submitPayment
- *  produces internally. Not on the wire; convenience for callers. */
-export interface X402SubmitOutcome {
-  verified: boolean
-  /** Set when verified=false. */
-  invalidReason?: string
-  /** Set when verified=true. */
-  settled?: boolean
-  /** Set when verified=true && settled=true. */
-  transaction?: string
-  /** Set when verified=true and settlement did not succeed, including
-   *  the unknown case below. */
-  settleErrorReason?: string
-  /** True when the settle call threw, so the facilitator may or may
-   *  not have settled the payment. `settled` is left unset. The invoice
-   *  status is `settlement_unknown`. Do not release a budget
-   *  reservation and do not issue a replacement invoice until the
-   *  result is resolved (see X402PaymentRail.resolveSettlement). */
-  settlementUnknown?: boolean
-  /** Resolved payer address from facilitator. */
-  payer?: string
-}
+ *  produces. Not on the wire. Switch on `settlement`:
+ *
+ *  - `not_attempted`: verification failed, nothing was sent to settle.
+ *  - `settled`: the facilitator confirmed settlement.
+ *  - `refused`: the facilitator answered that it did not settle.
+ *  - `unknown`: the settle call threw, so the payment may or may not
+ *    have settled. The invoice status is `settlement_unknown`. Do not
+ *    release a budget reservation and do not issue a replacement
+ *    invoice until the result is resolved (X402PaymentRail.resolveSettlement).
+ *
+ *  `!outcome.settled` is true for `refused`, `unknown` and
+ *  `not_attempted` alike, so it must not be read as "the payment
+ *  failed". */
+export type X402SubmitOutcome =
+  | {
+      verified: false
+      settlement: 'not_attempted'
+      invalidReason: string
+      payer?: string
+      settled?: undefined
+      transaction?: undefined
+      settleErrorReason?: undefined
+      settlementUnknown?: undefined
+    }
+  | {
+      verified: true
+      settlement: 'settled'
+      settled: true
+      transaction: string
+      payer: string
+      invalidReason?: undefined
+      settleErrorReason?: undefined
+      settlementUnknown?: undefined
+    }
+  | {
+      verified: true
+      settlement: 'refused'
+      settled: false
+      settleErrorReason: string
+      payer?: string
+      invalidReason?: undefined
+      transaction?: undefined
+      settlementUnknown?: undefined
+    }
+  | {
+      verified: true
+      settlement: 'unknown'
+      settlementUnknown: true
+      settleErrorReason: string
+      payer?: string
+      invalidReason?: undefined
+      settled?: undefined
+      transaction?: undefined
+    }
 
 /** The definite result of a settlement whose first answer was lost.
  *  The caller establishes it from the facilitator or from the chain. */

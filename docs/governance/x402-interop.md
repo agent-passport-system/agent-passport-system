@@ -21,7 +21,7 @@ APS treats x402 like any other binding rail: gate the requirements against a del
 This adapter binds APS V2 governance at the rail surface:
 
 - **Invoice creation** (`createInvoice`): build an `X402PaymentRequirements` valid as a 402 response body. Caches it under an invoice id so the resource server can reassemble the wire body.
-- **Verify-then-settle** (`submitPayment`): drive the facilitator `/verify` and `/settle` calls in sequence; flip the cached invoice to `confirmed`/`failed`; return an `X402SubmitOutcome` for caller-side receipt or denial minting.
+- **Verify-then-settle** (`submitPayment`): drive the facilitator `/verify` and `/settle` calls in sequence; flip the cached invoice to `confirmed`, `failed` or `settlement_unknown`; return an `X402SubmitOutcome` for caller-side receipt or denial minting. Switch on `outcome.settlement` (`settled`, `refused`, `unknown`, `not_attempted`). `unknown` means the settle call threw and the payment may have settled: mint no denial, release no budget reservation and issue no replacement invoice until `resolveSettlement` or the configured `settlementResolver` gives a definite result. The facilitator adapter must throw when it does not know the result and return `success: false` only for a definite refusal. Invoice state is in memory, so an attempt in progress is lost on restart.
 - **Wallet revocation** (`revokeWallet`): tracks revoked wallet ids in-memory.
 
 The adapter does NOT run the facilitator, sign EIP-3009 authorizations, submit on-chain transactions, implement the X-PAYMENT header transport, or persist invoice state. Those are caller and facilitator responsibilities.

@@ -174,6 +174,7 @@ export {
 export type {
   FacilitatorSettle as X402FacilitatorSettle,
   FacilitatorVerify as X402FacilitatorVerify,
+  SettlementResolver as X402SettlementResolver,
   X402RailConfig,
 } from './x402/index.js'
 
@@ -188,6 +189,7 @@ export type {
   X402Scheme,
   X402SettleRequest,
   X402SettleResponse,
+  X402SettlementResolution,
   X402SubmitOutcome,
   X402VerifyRequest,
   X402VerifyResponse,

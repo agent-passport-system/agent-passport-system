@@ -63,7 +63,15 @@ export type FacilitatorVerify = (
   req: X402VerifyRequest,
 ) => Promise<X402VerifyResponse>
 
-/** Caller wraps the facilitator HTTP /settle call. */
+/** Caller wraps the facilitator HTTP /settle call.
+ *
+ *  Contract the rail relies on: return `success: false` only when the
+ *  facilitator answered that it did not settle and will not settle
+ *  this payment. When the result is not known (timeout, dropped
+ *  connection, 5xx, an answer that cannot be parsed), throw. The rail
+ *  then keeps the invoice in `settlement_unknown`. An adapter that
+ *  maps a timeout to `success: false` makes the rail record a failure
+ *  for a payment that may have settled. */
 export type FacilitatorSettle = (
   req: X402SettleRequest,
 ) => Promise<X402SettleResponse>
@@ -207,7 +215,13 @@ export class X402PaymentRail implements PaymentRail {
       throw new Error(`invoice ${invoiceId} not found in adapter cache`)
     }
 
-    if (cached.status === 'pending' && cached.expires_at !== undefined) {
+    // A pending invoice with a submitPayment in progress is not expired:
+    // its settlement can still complete.
+    if (
+      cached.status === 'pending' &&
+      cached.expires_at !== undefined &&
+      !this.inFlight.has(invoiceId)
+    ) {
       if (new Date(cached.expires_at) < new Date()) {
         cached.status = 'expired'
         this.invoices.set(invoiceId, cached)
@@ -231,7 +245,17 @@ export class X402PaymentRail implements PaymentRail {
       } catch {
         resolution = undefined
       }
-      if (resolution !== undefined) this._applyResolution(invoiceId, cached, resolution)
+      // The lookup ran while other calls could resolve this invoice.
+      // _applyResolution rechecks the status, and the first result wins.
+      const current = this.invoices.get(invoiceId)
+      if (resolution !== undefined && current !== undefined) {
+        try {
+          this._applyResolution(invoiceId, current, resolution)
+        } catch {
+          // An answer that cannot be attributed leaves the invoice unknown.
+        }
+      }
+      return _stripInternal(current ?? cached)
     }
 
     return _stripInternal(cached)
@@ -369,6 +393,7 @@ export class X402PaymentRail implements PaymentRail {
       this.invoices.set(invoiceId, cached)
       return {
         verified: false,
+        settlement: 'not_attempted',
         invalidReason: `facilitator_verify_threw: ${msg}`,
       }
     }
@@ -378,6 +403,7 @@ export class X402PaymentRail implements PaymentRail {
       this.invoices.set(invoiceId, cached)
       const out: X402SubmitOutcome = {
         verified: false,
+        settlement: 'not_attempted',
         invalidReason: verifyResp.invalidReason ?? 'invalid_payment_payload',
       }
       if (verifyResp.payer !== undefined) out.payer = verifyResp.payer
@@ -402,6 +428,7 @@ export class X402PaymentRail implements PaymentRail {
       this.invoices.set(invoiceId, cached)
       const out: X402SubmitOutcome = {
         verified: true,
+        settlement: 'unknown',
         settlementUnknown: true,
         settleErrorReason: `facilitator_settle_threw: ${msg}`,
       }
@@ -415,6 +442,7 @@ export class X402PaymentRail implements PaymentRail {
       this.invoices.set(invoiceId, cached)
       const out: X402SubmitOutcome = {
         verified: true,
+        settlement: 'refused',
         settled: false,
         settleErrorReason: settleResp.errorReason ?? 'settlement_failed',
         payer: settleResp.payer,
@@ -433,11 +461,10 @@ export class X402PaymentRail implements PaymentRail {
       confirmed_at: new Date().toISOString(),
     }
     this.invoices.set(invoiceId, cached)
-    if (settleResp.transaction !== '') {
-      this.txIndex.set(settleResp.transaction, invoiceId)
-    }
+    this._indexTransaction(settleResp.transaction, invoiceId, cached)
     return {
       verified: true,
+      settlement: 'settled',
       settled: true,
       transaction: settleResp.transaction,
       payer: settleResp.payer,
@@ -463,12 +490,35 @@ export class X402PaymentRail implements PaymentRail {
     return _stripInternal(cached)
   }
 
+  /** Records which invoice a transaction settled. A transaction that is
+   *  already attributed to another invoice keeps its first attribution,
+   *  and the conflict is noted on this invoice. */
+  private _indexTransaction(tx: string, invoiceId: string, cached: CachedInvoice): void {
+    if (tx === '') return
+    const existing = this.txIndex.get(tx)
+    if (existing !== undefined && existing !== invoiceId) {
+      cached.metadata = { ...cached.metadata, tx_hash_also_attributed_to: existing }
+      this.invoices.set(invoiceId, cached)
+      return
+    }
+    this.txIndex.set(tx, invoiceId)
+  }
+
   private _applyResolution(
     invoiceId: string,
     cached: CachedInvoice,
     resolution: X402SettlementResolution,
   ): void {
+    // Checked here, at the write, because callers await before they get
+    // here. An invoice that is no longer unknown is never rewritten.
+    if (cached.status !== 'settlement_unknown') return
     if (resolution.settled) {
+      const existing = resolution.transaction === '' ? undefined : this.txIndex.get(resolution.transaction)
+      if (existing !== undefined && existing !== invoiceId) {
+        throw new Error(
+          `transaction ${resolution.transaction} is already attributed to invoice ${existing}`,
+        )
+      }
       cached.status = 'confirmed'
       cached.settled = {
         success: true,
