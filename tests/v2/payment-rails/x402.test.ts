@@ -271,6 +271,51 @@ describe('X402PaymentRail — submitPayment happy path', () => {
   })
 })
 
+describe('X402PaymentRail — concurrent submitPayment on one invoice', () => {
+  it('runs verify and settle once when two calls overlap', async () => {
+    let verifyCalls = 0
+    let settleCalls = 0
+    let release: () => void = () => {}
+    const gate = new Promise<void>((r) => { release = r })
+    const rail = _rail({
+      verify: async () => {
+        verifyCalls++
+        await gate
+        return { isValid: true, payer: PAYER }
+      },
+      settle: async () => {
+        settleCalls++
+        return { success: true, payer: PAYER, transaction: TX_HASH, network: 'base' }
+      },
+    })
+    const invoice = await rail.createInvoice({ amount_base_units: '1000000' })
+    const first = rail.submitPayment(invoice.invoice_id, _payload())
+    const second = rail.submitPayment(
+      invoice.invoice_id,
+      _payload({ payload: { signature: '0x' + 'b'.repeat(130), authorization: _authorization({ nonce: '0x' + '1'.repeat(64) }) } }),
+    )
+    const both = Promise.allSettled([first, second])
+    await new Promise((r) => setImmediate(r))
+    release()
+    const [a, b] = await both
+    assert.equal(settleCalls, 1)
+    assert.equal(verifyCalls, 1)
+    assert.equal(a.status, 'fulfilled')
+    assert.equal(a.status === 'fulfilled' && a.value.settled, true)
+    assert.equal(b.status, 'rejected')
+    assert.match(String(b.status === 'rejected' && b.reason), /already has a submitPayment in progress/)
+    const after = await rail.checkStatus(invoice.invoice_id)
+    assert.equal(after.status, 'confirmed')
+  })
+
+  it('refuses a later call once the first has settled', async () => {
+    const rail = _rail()
+    const invoice = await rail.createInvoice({ amount_base_units: '1000000' })
+    await rail.submitPayment(invoice.invoice_id, _payload())
+    await assert.rejects(rail.submitPayment(invoice.invoice_id, _payload()), /not pending/)
+  })
+})
+
 // ── submitPayment verify-fail → denial ────────────────────────────
 
 describe('X402PaymentRail — submitPayment failure → rail_error denial', () => {

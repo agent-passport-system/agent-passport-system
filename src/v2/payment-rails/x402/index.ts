@@ -127,6 +127,10 @@ export class X402PaymentRail implements PaymentRail {
    *  resolve a previously-settled invoice from a tx hash. */
   private readonly txIndex = new Map<string, string>()
   private readonly revokedWallets = new Set<string>()
+  /** Invoices with a submitPayment call between its pending check and
+   *  its final status. A second concurrent call for the same invoice is
+   *  refused, so verify and settle run at most once per invoice. */
+  private readonly inFlight = new Set<string>()
 
   constructor(config: X402RailConfig) {
     this.config = config
@@ -297,6 +301,25 @@ export class X402PaymentRail implements PaymentRail {
           'submitPayment expects a fresh invoice',
       )
     }
+    if (this.inFlight.has(invoiceId)) {
+      throw new Error(
+        `invoice ${invoiceId} already has a submitPayment in progress; ` +
+          'submitPayment runs verify and settle at most once per invoice',
+      )
+    }
+    this.inFlight.add(invoiceId)
+    try {
+      return await this._verifyAndSettle(invoiceId, cached, payload)
+    } finally {
+      this.inFlight.delete(invoiceId)
+    }
+  }
+
+  private async _verifyAndSettle(
+    invoiceId: string,
+    cached: CachedInvoice,
+    payload: X402PaymentPayload,
+  ): Promise<X402SubmitOutcome> {
 
     // Verify
     const verifyReq: X402VerifyRequest = {
