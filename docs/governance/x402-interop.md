@@ -35,6 +35,7 @@ rail.checkStatus(invoiceId)                            // → PaymentInvoice
 rail.submitPayment(invoiceId, payload)                 // → X402SubmitOutcome
 rail.verifyTransaction(txHash, expectedAmount?)        // → VerifyTransactionResult
 rail.resolveSettlement(invoiceId, resolution)          // → PaymentInvoice (only from settlement_unknown)
+rail.recoverOpenAttempts()                             // → string[] (invoice ids loaded from config.attemptStore)
 rail.revokeWallet(walletId)                            // → boolean
 rail.getRequirements(invoiceId)                        // → X402PaymentRequirements | undefined
 ```
@@ -66,13 +67,32 @@ Ed25519 over RFC 8785 JCS canonical bytes, identical to AP2 / ACP / MPP / Stripe
 
 The wire-level x402 signature is the EIP-712 / EIP-3009 signature over the transfer authorization; that's a secp256k1 signature owned by the payer's wallet, orthogonal to the APS Ed25519 audit signature.
 
+## Settlement attempts across a restart
+
+The rail keeps invoices in memory. A process that stops while a settle request is in progress loses the invoice, the payload and the fact that the request was sent.
+
+`config.attemptStore` closes that gap for the settle call. It is an interface the caller implements over its own storage.
+
+- `recordAttempt` runs after verify and before the settle request. If it rejects, the rail throws, makes no settle call and leaves the invoice pending.
+- `closeAttempt` runs when the invoice reaches `confirmed` or `failed`. An attempt whose result is unknown stays open.
+- `listOpenAttempts` returns the attempts that were recorded and not closed.
+
+After a restart, call `rail.recoverOpenAttempts()` once before serving requests. It loads each open attempt this instance does not know and puts the invoice in `settlement_unknown`. It makes no settle call. `checkStatus` with a `settlementResolver`, or `resolveSettlement`, then gives each one its definite result and closes the attempt.
+
+What this does not cover:
+
+- An invoice that was created and never reached the settle step is not stored. After a restart it is unknown to the rail, and no settle request was made for it.
+- Transaction attribution is still per process. A restarted instance does not know which transactions earlier instances attributed, apart from the ones it resolves itself.
+- The store does not coordinate two instances that run at the same time. Two instances must not accept `submitPayment` for the same invoice.
+- If `closeAttempt` fails, the invoice keeps its result, the attempt stays open, and the next recovery asks the resolver again. The error text is kept in `metadata.settlement_attempt_close_error`.
+
 ## Limitations
 
 | Limitation | Why | Workaround |
 |---|---|---|
 | Settlement is asynchronous and facilitator-trusted | The rail returns success after `/settle` reports `success=true`, but on-chain finality lags. | Caller waits for chain finality before downstream actions that depend on irreversibility. |
 | Single facilitator per rail instance | `config.facilitatorVerify` / `config.facilitatorSettle` are pinned at construction; no automatic failover. | Caller wraps multiple facilitators with their own routing/fallback inside the closures. |
-| In-memory invoice cache | Invoice → requirements lookup is `Map`-based and process-local. | Gateway product swaps in a persistent store; the SDK reference adapter is single-process. |
+| In-memory invoice cache | Invoice → requirements lookup is `Map`-based and process-local. | `config.attemptStore` keeps settlement attempts across a restart (see above). Other invoice state stays process-local. |
 | `sendPayment` is unsupported | x402 is a pull protocol from the resource server's perspective. | Outbound payments use a different rail (nano, MPP, etc.); calling `sendPayment` throws. |
 | No native multi-network policy | The rail is pinned to a single `network` per instance. | Construct one rail per network and route at the gateway layer. |
 | EIP-3009 signature shape is fixed | Only the `'exact'` scheme is wired. | New schemes (`upto`, etc., when standardized) require an `X402_VERSION` bump and a scheme dispatch in `submitPayment`. |

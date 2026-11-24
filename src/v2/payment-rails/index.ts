@@ -175,7 +175,10 @@ export type {
   FacilitatorSettle as X402FacilitatorSettle,
   FacilitatorVerify as X402FacilitatorVerify,
   SettlementResolver as X402SettlementResolver,
+  X402AttemptOutcome,
+  X402AttemptStore,
   X402RailConfig,
+  X402SettlementAttempt,
 } from './x402/index.js'
 
 export { X402_VERSION } from './x402/types.js'
