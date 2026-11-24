@@ -1866,7 +1866,8 @@ export type {
 
 // ── v2.6.x payment-rails / x402 reference adapter (Base + USDC) ──
 // Settles via the x402 v1 protocol against a caller-supplied
-// facilitator (Coinbase CDP public endpoint by default). Mocked
+// facilitator, such as the Coinbase CDP facilitator, which needs CDP
+// API keys. The rail never calls a facilitator on its own. Mocked
 // facilitator in tests; on-chain settlement happens via
 // EIP-3009 transferWithAuthorization at the facilitator.
 export {
