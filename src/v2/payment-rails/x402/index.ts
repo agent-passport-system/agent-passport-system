@@ -418,14 +418,21 @@ export class X402PaymentRail implements PaymentRail {
   private async _verifyAndSettle(
     invoiceId: string,
     cached: CachedInvoice,
-    payload: X402PaymentPayload,
+    callerPayload: X402PaymentPayload,
   ): Promise<X402SubmitOutcome> {
+    // Taken before the first await. The caller keeps its own object and
+    // can change it while verify or the store write is pending, so the
+    // rail works from its own copies. Verify, the stored record and
+    // settle each get a separate copy of the same values, and none of
+    // them can change what the others see.
+    const payload = structuredClone(callerPayload)
+    const requirements = structuredClone(cached.requirements)
 
     // Verify
     const verifyReq: X402VerifyRequest = {
       x402Version: X402_VERSION,
-      paymentPayload: payload,
-      paymentRequirements: cached.requirements,
+      paymentPayload: structuredClone(payload),
+      paymentRequirements: structuredClone(requirements),
     }
     let verifyResp: X402VerifyResponse
     try {
@@ -464,7 +471,7 @@ export class X402PaymentRail implements PaymentRail {
         await store.recordAttempt({
           invoiceId,
           invoice: structuredClone(_stripInternal(cached)),
-          paymentRequirements: structuredClone(cached.requirements),
+          paymentRequirements: structuredClone(requirements),
           paymentPayload: structuredClone(payload),
           startedAt: new Date().toISOString(),
         })
@@ -480,8 +487,8 @@ export class X402PaymentRail implements PaymentRail {
     // Settle
     const settleReq: X402SettleRequest = {
       x402Version: X402_VERSION,
-      paymentPayload: payload,
-      paymentRequirements: cached.requirements,
+      paymentPayload: structuredClone(payload),
+      paymentRequirements: structuredClone(requirements),
     }
     let settleResp: X402SettleResponse
     try {

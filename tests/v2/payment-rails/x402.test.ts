@@ -1234,6 +1234,88 @@ describe('X402PaymentRail — attempt store', () => {
     assert.equal(m.open.size, 1)
   })
 
+  it('settle and the stored record carry the payload verify saw, even if the caller changes it during the store write', async () => {
+    let releaseWrite: () => void = () => {}
+    const stored: X402SettlementAttempt[] = []
+    const slow: X402AttemptStore = {
+      recordAttempt(attempt) {
+        stored.push(JSON.parse(JSON.stringify(attempt)) as X402SettlementAttempt)
+        return new Promise<void>((r) => { releaseWrite = r })
+      },
+      async closeAttempt() {},
+      async listOpenAttempts() { return stored },
+    }
+    const seen: Record<string, string> = {}
+    const rail = storeRail(slow, {
+      facilitatorVerify: async (req) => {
+        seen.verify = req.paymentPayload.payload.authorization.nonce
+        return { isValid: true, payer: PAYER }
+      },
+      facilitatorSettle: async (req) => {
+        seen.settle = req.paymentPayload.payload.authorization.nonce
+        throw new Error('timeout')
+      },
+    })
+    const invoice = await rail.createInvoice({ amount_base_units: '1000000' })
+    const original = '0x' + 'a'.repeat(64)
+    const callerPayload = _payload({
+      payload: { signature: '0x' + '2'.repeat(130), authorization: _authorization({ nonce: original }) },
+    })
+    const pending = rail.submitPayment(invoice.invoice_id, callerPayload)
+    // Wait until the store write is pending, then change the caller's object.
+    while (stored.length === 0) await new Promise((r) => setImmediate(r))
+    callerPayload.payload.authorization.nonce = '0x' + 'b'.repeat(64)
+    callerPayload.payload.authorization.value = '999999999'
+    releaseWrite()
+    const out = await pending
+    assert.equal(out.settlement, 'unknown')
+    assert.equal(seen.verify, original)
+    assert.equal(seen.settle, original)
+    assert.equal(stored[0]!.paymentPayload.payload.authorization.nonce, original)
+
+    // After a restart the resolver is asked about the authorization that was sent.
+    let askedNonce = ''
+    let askedValue = ''
+    const second = storeRail(slow, {
+      settlementResolver: async (q) => {
+        askedNonce = q.paymentPayload.payload.authorization.nonce
+        askedValue = q.paymentPayload.payload.authorization.value
+        return undefined
+      },
+    })
+    await second.recoverOpenAttempts()
+    await second.checkStatus(invoice.invoice_id)
+    assert.equal(askedNonce, original)
+    assert.equal(askedValue, '1000000')
+  })
+
+  it('a facilitator that changes the request it was given does not change what settle sends', async () => {
+    const m = memoryStore()
+    let settleNonce = ''
+    let settlePayTo = ''
+    const rail = storeRail(m.store, {
+      facilitatorVerify: async (req) => {
+        req.paymentPayload.payload.authorization.nonce = '0x' + 'c'.repeat(64)
+        req.paymentRequirements.payTo = '0x' + 'd'.repeat(40)
+        return { isValid: true, payer: PAYER }
+      },
+      facilitatorSettle: async (req) => {
+        settleNonce = req.paymentPayload.payload.authorization.nonce
+        settlePayTo = req.paymentRequirements.payTo
+        return { success: true, payer: PAYER, transaction: TX_HASH, network: 'base' }
+      },
+    })
+    const invoice = await rail.createInvoice({ amount_base_units: '1000000' })
+    const original = '0x' + 'a'.repeat(64)
+    await rail.submitPayment(
+      invoice.invoice_id,
+      _payload({ payload: { signature: '0x' + '2'.repeat(130), authorization: _authorization({ nonce: original }) } }),
+    )
+    assert.equal(settleNonce, original)
+    assert.equal(settlePayTo, PAY_TO)
+    assert.equal(rail.getRequirements(invoice.invoice_id)?.payTo, PAY_TO)
+  })
+
   it('refuses a stored record that is not a settlement attempt', async () => {
     const bad: X402AttemptStore = {
       async recordAttempt() {},
