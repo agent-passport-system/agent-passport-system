@@ -238,7 +238,7 @@ export class X402PaymentRail implements PaymentRail {
       maxTimeoutSeconds,
     }
     if (this.config.extra !== undefined) {
-      requirements.extra = this.config.extra
+      requirements.extra = structuredClone(this.config.extra)
     }
 
     const invoiceId = randomUUID()
@@ -246,7 +246,9 @@ export class X402PaymentRail implements PaymentRail {
     const expiresAt = new Date(now.getTime() + maxTimeoutSeconds * 1000).toISOString()
 
     const metadata: Record<string, unknown> = {
-      x402_requirements: requirements,
+      // A copy for display. The rail verifies and settles against its
+      // own `requirements`, which no public object refers to.
+      x402_requirements: structuredClone(requirements),
       x402_version: X402_VERSION,
     }
     if (opts.settlement_id !== undefined) metadata.settlement_id = opts.settlement_id
@@ -266,8 +268,9 @@ export class X402PaymentRail implements PaymentRail {
     }
     if (opts.memo !== undefined) invoice.memo = opts.memo
 
-    this.invoices.set(invoiceId, { ...invoice, requirements })
-    return invoice
+    const cached: CachedInvoice = { ...invoice, requirements }
+    this.invoices.set(invoiceId, cached)
+    return _stripInternal(cached)
   }
 
   async checkStatus(invoiceId: string): Promise<PaymentInvoice> {
@@ -368,7 +371,8 @@ export class X402PaymentRail implements PaymentRail {
       verified: amountMatches && cached.settled.success,
       amount_base_units: cached.amount_base_units,
       sender: cached.settled.payer,
-      receiver: cached.requirements.payTo,
+      // The recipient the facilitator was given for this settlement.
+      receiver: (cached.submittedRequirements ?? cached.requirements).payTo,
       timestamp: cached.created_at,
     }
   }
@@ -502,7 +506,7 @@ export class X402PaymentRail implements PaymentRail {
       try {
         await store.recordAttempt({
           invoiceId,
-          invoice: structuredClone(_stripInternal(cached)),
+          invoice: _stripInternal(cached),
           paymentRequirements: structuredClone(requirements),
           paymentPayload: structuredClone(payload),
           startedAt: new Date().toISOString(),
@@ -848,7 +852,9 @@ function _stripInternal(c: CachedInvoice): PaymentInvoice {
     settled: _s,
     ...rest
   } = c
-  return rest
+  // Detached: a caller that changes an invoice it was given, including
+  // its metadata, does not change the rail's own state.
+  return structuredClone(rest)
 }
 
 /** Format an atomic-units string as a decimal string with `decimals`

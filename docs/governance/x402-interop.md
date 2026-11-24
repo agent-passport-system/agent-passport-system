@@ -79,7 +79,7 @@ The rail keeps invoices in memory. A process that stops while a settle request i
 
 ### Startup
 
-With a store configured, `submitPayment` throws until `recoverOpenAttempts()` has completed on that instance. Call it before serving requests.
+With a store configured, `submitPayment` throws until `recoverOpenAttempts()` has completed on that instance. Call it before serving requests. The check is for the first successful recovery on the instance. A later call that fails does not close `submitPayment` again.
 
 ```ts
 const rail = createX402Rail({ ...config, attemptStore, settlementResolver })
@@ -95,6 +95,7 @@ If recovery throws, nothing was loaded and `submitPayment` stays refused. Recove
 
 - One open record per invoice id. `recordAttempt` for an invoice that already has an open record replaces that record as a whole. A write can be stored and still reject, for example when the acknowledgement is lost. The rail then leaves the invoice pending, and a retry writes again for the same invoice, possibly with a different payload.
 - Once `recordAttempt` resolves, `listOpenAttempts` returns exactly the record that was passed in, until it is closed.
+- Records are plain JSON data. Recovery compares two records for one invoice as JSON text, so the same content with a different key order counts as a conflict and recovery refuses it.
 
 A record can exist for an attempt whose settle request was never sent, when the write was stored and then rejected and nobody retried. Recovery loads it as `settlement_unknown`, and the resolver or the operator closes it as not settled.
 

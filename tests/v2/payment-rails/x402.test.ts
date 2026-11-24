@@ -1009,6 +1009,69 @@ describe('X402PaymentRail — default constants', () => {
   })
 })
 
+describe('X402PaymentRail — public invoices are detached from rail state', () => {
+  type Meta = { x402_requirements: { payTo: string; maxAmountRequired: string } }
+  const OTHER = '0x' + 'd'.repeat(40)
+
+  it('changing a public invoice after settlement does not change what verifyTransaction reports', async () => {
+    const rail = _rail()
+    const invoice = await rail.createInvoice({ amount_base_units: '1000000' })
+    await rail.submitPayment(invoice.invoice_id, _payload())
+
+    ;(invoice.metadata as Meta).x402_requirements.payTo = OTHER
+    const later = await rail.checkStatus(invoice.invoice_id)
+    ;(later.metadata as Meta).x402_requirements.payTo = OTHER
+    later.amount_base_units = '1'
+
+    const v = await rail.verifyTransaction(TX_HASH, '1000000')
+    assert.equal(v.verified, true)
+    assert.equal(v.receiver, PAY_TO)
+    assert.equal(v.amount_base_units, '1000000')
+    const again = await rail.checkStatus(invoice.invoice_id)
+    assert.equal((again.metadata as Meta).x402_requirements.payTo, PAY_TO)
+  })
+
+  it('changing a public invoice before submit does not change what is verified and settled', async () => {
+    const sent: string[] = []
+    const rail = createX402Rail({
+      payTo: PAY_TO,
+      asset: USDC_BASE_MAINNET,
+      network: 'base',
+      resource: 'https://example.com/r',
+      facilitatorVerify: async (req) => {
+        sent.push(`verify ${req.paymentRequirements.payTo} ${req.paymentRequirements.maxAmountRequired}`)
+        return { isValid: true, payer: PAYER }
+      },
+      facilitatorSettle: async (req) => {
+        sent.push(`settle ${req.paymentRequirements.payTo} ${req.paymentRequirements.maxAmountRequired}`)
+        return { success: true, payer: PAYER, transaction: TX_HASH, network: 'base' }
+      },
+    })
+    const invoice = await rail.createInvoice({ amount_base_units: '1000000' })
+    const meta = invoice.metadata as Meta
+    meta.x402_requirements.payTo = OTHER
+    meta.x402_requirements.maxAmountRequired = '1'
+    await rail.submitPayment(invoice.invoice_id, _payload())
+    assert.deepEqual(sent, [`verify ${PAY_TO} 1000000`, `settle ${PAY_TO} 1000000`])
+  })
+
+  it('a change to config.extra after createInvoice does not reach the requirements', async () => {
+    const extra: Record<string, unknown> = { name: 'USD Coin', version: '2' }
+    const rail = createX402Rail({
+      payTo: PAY_TO,
+      asset: USDC_BASE_MAINNET,
+      network: 'base',
+      resource: 'https://example.com/r',
+      extra,
+      facilitatorVerify: alwaysVerify(),
+      facilitatorSettle: alwaysSettle(),
+    })
+    const invoice = await rail.createInvoice({ amount_base_units: '1000000' })
+    extra.name = 'changed'
+    assert.deepEqual(rail.getRequirements(invoice.invoice_id)?.extra, { name: 'USD Coin', version: '2' })
+  })
+})
+
 // ── Attempt store (issue #273) ────────────────────────────────────
 
 /** A store that keeps records as JSON text, the way a database row or
