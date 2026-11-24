@@ -154,8 +154,21 @@ export interface X402SubmitOutcome {
   settled?: boolean
   /** Set when verified=true && settled=true. */
   transaction?: string
-  /** Set when verified=true && settled=false. */
+  /** Set when verified=true and settlement did not succeed, including
+   *  the unknown case below. */
   settleErrorReason?: string
+  /** True when the settle call threw, so the facilitator may or may
+   *  not have settled the payment. `settled` is left unset. The invoice
+   *  status is `settlement_unknown`. Do not release a budget
+   *  reservation and do not issue a replacement invoice until the
+   *  result is resolved (see X402PaymentRail.resolveSettlement). */
+  settlementUnknown?: boolean
   /** Resolved payer address from facilitator. */
   payer?: string
 }
+
+/** The definite result of a settlement whose first answer was lost.
+ *  The caller establishes it from the facilitator or from the chain. */
+export type X402SettlementResolution =
+  | { settled: true; transaction: string; payer: string }
+  | { settled: false; reason: string }

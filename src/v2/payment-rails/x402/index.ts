@@ -50,6 +50,7 @@ import {
   type X402Scheme,
   type X402SettleRequest,
   type X402SettleResponse,
+  type X402SettlementResolution,
   type X402SubmitOutcome,
   type X402VerifyRequest,
   type X402VerifyResponse,
@@ -68,6 +69,12 @@ export type FacilitatorSettle = (
 ) => Promise<X402SettleResponse>
 
 // ── Configuration ─────────────────────────────────────────────────
+
+export type SettlementResolver = (query: {
+  invoiceId: string
+  paymentPayload: X402PaymentPayload
+  paymentRequirements: X402PaymentRequirements
+}) => Promise<X402SettlementResolution | undefined>
 
 export interface X402RailConfig {
   /** Recipient wallet address used as PaymentRequirements.payTo. */
@@ -102,6 +109,11 @@ export interface X402RailConfig {
   facilitatorVerify: FacilitatorVerify
   /** Caller-supplied facilitator /settle implementation. */
   facilitatorSettle: FacilitatorSettle
+  /** Optional. Looks up the definite result of a settlement whose
+   *  answer was lost. checkStatus calls it for an invoice in
+   *  `settlement_unknown`. Return undefined while the result is still
+   *  not known. */
+  settlementResolver?: SettlementResolver
 }
 
 // ── Cached invoice ────────────────────────────────────────────────
@@ -200,6 +212,26 @@ export class X402PaymentRail implements PaymentRail {
         cached.status = 'expired'
         this.invoices.set(invoiceId, cached)
       }
+    }
+
+    // An unknown settlement never expires on its own. It stays unknown
+    // until the resolver, or resolveSettlement, gives a definite result.
+    if (
+      cached.status === 'settlement_unknown' &&
+      this.config.settlementResolver !== undefined &&
+      cached.receivedPayload !== undefined
+    ) {
+      let resolution: X402SettlementResolution | undefined
+      try {
+        resolution = await this.config.settlementResolver({
+          invoiceId,
+          paymentPayload: cached.receivedPayload,
+          paymentRequirements: cached.requirements,
+        })
+      } catch {
+        resolution = undefined
+      }
+      if (resolution !== undefined) this._applyResolution(invoiceId, cached, resolution)
     }
 
     return _stripInternal(cached)
@@ -362,13 +394,15 @@ export class X402PaymentRail implements PaymentRail {
     try {
       settleResp = await this.config.facilitatorSettle(settleReq)
     } catch (e) {
+      // The request may have reached the facilitator before the call
+      // failed, so the payment may have settled. Not a failure.
       const msg = e instanceof Error ? e.message : String(e)
-      cached.status = 'failed'
+      cached.status = 'settlement_unknown'
       cached.receivedPayload = payload
       this.invoices.set(invoiceId, cached)
       const out: X402SubmitOutcome = {
         verified: true,
-        settled: false,
+        settlementUnknown: true,
         settleErrorReason: `facilitator_settle_threw: ${msg}`,
       }
       if (verifyResp.payer !== undefined) out.payer = verifyResp.payer
@@ -408,6 +442,57 @@ export class X402PaymentRail implements PaymentRail {
       transaction: settleResp.transaction,
       payer: settleResp.payer,
     }
+  }
+
+  /** Records the definite result of a settlement that submitPayment
+   *  left in `settlement_unknown`. The caller establishes the result
+   *  from the facilitator or from the chain. Throws for an invoice in
+   *  any other status, so a confirmed or failed invoice is never
+   *  rewritten. */
+  resolveSettlement(invoiceId: string, resolution: X402SettlementResolution): PaymentInvoice {
+    const cached = this.invoices.get(invoiceId)
+    if (cached === undefined) {
+      throw new Error(`invoice ${invoiceId} not found in adapter cache`)
+    }
+    if (cached.status !== 'settlement_unknown') {
+      throw new Error(
+        `invoice ${invoiceId} is not in settlement_unknown (status=${cached.status})`,
+      )
+    }
+    this._applyResolution(invoiceId, cached, resolution)
+    return _stripInternal(cached)
+  }
+
+  private _applyResolution(
+    invoiceId: string,
+    cached: CachedInvoice,
+    resolution: X402SettlementResolution,
+  ): void {
+    if (resolution.settled) {
+      cached.status = 'confirmed'
+      cached.settled = {
+        success: true,
+        payer: resolution.payer,
+        transaction: resolution.transaction,
+        network: this.config.network,
+      }
+      cached.metadata = {
+        ...cached.metadata,
+        tx_hash: resolution.transaction,
+        payer: resolution.payer,
+        confirmed_at: new Date().toISOString(),
+        settlement_resolved_after_unknown: true,
+      }
+      if (resolution.transaction !== '') this.txIndex.set(resolution.transaction, invoiceId)
+    } else {
+      cached.status = 'failed'
+      cached.metadata = {
+        ...cached.metadata,
+        settlement_resolved_after_unknown: true,
+        settlement_failure_reason: resolution.reason,
+      }
+    }
+    this.invoices.set(invoiceId, cached)
   }
 
   /** Returns the X402PaymentRequirements cached for an invoice. Used
