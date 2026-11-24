@@ -1273,7 +1273,10 @@ describe('X402PaymentRail — attempt store', () => {
     })
     const pending = rail.submitPayment(invoice.invoice_id, callerPayload)
     // Wait until the store write is pending, then change the caller's object.
-    while (stored.length === 0) await new Promise((r) => setImmediate(r))
+    for (let i = 0; stored.length === 0; i++) {
+      assert.ok(i < 1000, 'the store write never started')
+      await new Promise((r) => setImmediate(r))
+    }
     callerPayload.payload.authorization.nonce = '0x' + 'b'.repeat(64)
     callerPayload.payload.authorization.value = '999999999'
     releaseWrite()
@@ -1535,7 +1538,10 @@ describe('X402PaymentRail — attempt store', () => {
     // Before submit.
     rail.getRequirements(invoice.invoice_id)!.payTo = attacker
     const pending = rail.submitPayment(invoice.invoice_id, _payload())
-    while (!writing) await new Promise((r) => setImmediate(r))
+    for (let i = 0; !writing; i++) {
+      assert.ok(i < 1000, 'the store write never started')
+      await new Promise((r) => setImmediate(r))
+    }
     // While the store write is pending.
     rail.getRequirements(invoice.invoice_id)!.payTo = attacker
     releaseWrite()
