@@ -756,15 +756,17 @@ export class X402PaymentRail implements PaymentRail {
         )
       }
     }
-    const recovered: string[] = []
+    // Build every invoice first. Copying a record can throw, and a
+    // recovery that throws must leave the live cache untouched.
+    const built = new Map<string, CachedInvoice>()
     for (const { attempt } of byInvoice.values()) {
       if (this.invoices.has(attempt.invoiceId)) continue
       const requirements = structuredClone(attempt.paymentRequirements)
-      this.invoices.set(attempt.invoiceId, {
+      built.set(attempt.invoiceId, {
         ...structuredClone(attempt.invoice),
         status: 'settlement_unknown',
         metadata: {
-          ...attempt.invoice.metadata,
+          ...structuredClone(attempt.invoice.metadata ?? {}),
           settlement_attempt_recovered: true,
           settlement_attempt_started_at: attempt.startedAt,
         },
@@ -772,7 +774,13 @@ export class X402PaymentRail implements PaymentRail {
         submittedRequirements: structuredClone(requirements),
         receivedPayload: structuredClone(attempt.paymentPayload),
       })
-      recovered.push(attempt.invoiceId)
+    }
+    // Nothing below throws or awaits, so the cache changes as a whole.
+    const recovered: string[] = []
+    for (const [invoiceId, invoice] of built) {
+      if (this.invoices.has(invoiceId)) continue
+      this.invoices.set(invoiceId, invoice)
+      recovered.push(invoiceId)
     }
     this.recoveryDone = true
     return recovered

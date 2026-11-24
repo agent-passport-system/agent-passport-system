@@ -1504,6 +1504,41 @@ describe('X402PaymentRail — attempt store', () => {
     assert.deepEqual(await storeRail(dup).recoverOpenAttempts(), [invoice.invoice_id])
   })
 
+  it('a recovery that fails on a later record leaves the earlier one unloaded', async () => {
+    const m = memoryStore()
+    const src = await readyRail(m.store, { facilitatorSettle: async () => { throw new Error('timeout') } })
+    const one = await src.createInvoice({ amount_base_units: '1000000' })
+    const two = await src.createInvoice({ amount_base_units: '1000000' })
+    await src.submitPayment(one.invoice_id, _payload())
+    await src.submitPayment(two.invoice_id, _payload())
+    const records = await m.store.listOpenAttempts()
+    assert.equal(records.length, 2)
+    // The second record passes the shape check and cannot be copied.
+    const second = records[1]!
+    second.invoice.metadata = { ...second.invoice.metadata, hook: () => {} } as typeof second.invoice.metadata
+    let poisoned = true
+    const store: X402AttemptStore = {
+      async recordAttempt() {},
+      async closeAttempt() {},
+      async listOpenAttempts() { return poisoned ? records : m.store.listOpenAttempts() },
+    }
+    const rail = storeRail(store)
+    await assert.rejects(rail.recoverOpenAttempts())
+    await assert.rejects(rail.checkStatus(records[0]!.invoiceId), /not found/)
+    await assert.rejects(rail.checkStatus(records[1]!.invoiceId), /not found/)
+    const fresh = await rail.createInvoice({ amount_base_units: '1000000' })
+    await assert.rejects(
+      rail.submitPayment(fresh.invoice_id, _payload()),
+      /recoverOpenAttempts\(\) has not completed/,
+    )
+    // Once the store returns copyable records, recovery loads both.
+    poisoned = false
+    assert.deepEqual(
+      (await rail.recoverOpenAttempts()).sort(),
+      [one.invoice_id, two.invoice_id].sort(),
+    )
+  })
+
   it('changing the object getRequirements returned does not change what is settled or reconciled', async () => {
     let releaseWrite: () => void = () => {}
     let writing = false
