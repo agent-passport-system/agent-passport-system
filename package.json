@@ -55,10 +55,10 @@
     "@types/node": "^20.19.43",
     "canonicalize": "5.1.0",
     "fast-check": "^4.9.0",
-    "mcp-use": "2.8.2",
+    "mcp-use": "2.12.4",
     "tsx": "^4.23.12",
     "typescript": "^7.0.2",
-    "viem": "2.56.9",
+    "viem": "2.57.20",
     "zod": "4.6.7"
   },
   "keywords": [

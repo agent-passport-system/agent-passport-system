@@ -649,7 +649,7 @@ describe('X402PaymentRail — fixture byte-parity', () => {
 
 describe('X402PaymentRail — default constants', () => {
   it('exports the Coinbase CDP facilitator URL pin', () => {
-    assert.equal(DEFAULT_FACILITATOR_URL, 'https://api.cdp.coinbase.com/x402')
+    assert.equal(DEFAULT_FACILITATOR_URL, 'https://api.cdp.coinbase.com/platform/v2/x402')
   })
 
   it('exports USDC contract addresses for Base mainnet and Sepolia', () => {
