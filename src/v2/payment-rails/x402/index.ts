@@ -274,7 +274,10 @@ export class X402PaymentRail implements PaymentRail {
     // the on-chain transaction itself comes from /settle. Verification
     // by tx hash here resolves the cached settled invoice and confirms
     // the tx hash matches.
-    const invoiceId = this.txIndex.get(txProof)
+    // Same normalization as attribution, so a hash verifies whatever
+    // letter case the caller holds it in.
+    const normalizedProof = _normalizeTxHash(txProof)
+    const invoiceId = normalizedProof === undefined ? undefined : this.txIndex.get(normalizedProof)
     if (invoiceId === undefined) {
       return {
         verified: false,
@@ -459,14 +462,14 @@ export class X402PaymentRail implements PaymentRail {
     // it names can be attributed to this invoice. A missing transaction,
     // or one already attributed to another invoice, leaves the invoice
     // unresolved: money may have moved, so it is not a failure either.
-    const problem = this._attributionProblem(settleResp.transaction, invoiceId)
-    if (problem !== undefined) {
+    const attribution = this._attribute(settleResp.transaction, invoiceId)
+    if ('problem' in attribution) {
       cached.status = 'settlement_unknown'
       cached.receivedPayload = payload
       cached.metadata = {
         ...cached.metadata,
-        settlement_attribution_problem: problem,
-        reported_tx_hash: settleResp.transaction,
+        settlement_attribution_problem: attribution.problem,
+        reported_tx_hash: settleResp.transaction ?? null,
         reported_payer: settleResp.payer,
       }
       this.invoices.set(invoiceId, cached)
@@ -474,28 +477,29 @@ export class X402PaymentRail implements PaymentRail {
         verified: true,
         settlement: 'unknown',
         settlementUnknown: true,
-        settleErrorReason: problem,
+        settleErrorReason: attribution.problem,
         payer: settleResp.payer,
       }
     }
+    const txHash = attribution.tx
 
     // Confirmed
     cached.status = 'confirmed'
     cached.receivedPayload = payload
-    cached.settled = settleResp
+    cached.settled = { ...settleResp, transaction: txHash }
     cached.metadata = {
       ...cached.metadata,
-      tx_hash: settleResp.transaction,
+      tx_hash: txHash,
       payer: settleResp.payer,
       confirmed_at: new Date().toISOString(),
     }
     this.invoices.set(invoiceId, cached)
-    this.txIndex.set(settleResp.transaction, invoiceId)
+    this.txIndex.set(txHash, invoiceId)
     return {
       verified: true,
       settlement: 'settled',
       settled: true,
-      transaction: settleResp.transaction,
+      transaction: txHash,
       payer: settleResp.payer,
     }
   }
@@ -519,16 +523,26 @@ export class X402PaymentRail implements PaymentRail {
     return _stripInternal(cached)
   }
 
-  /** Why a reported transaction cannot be attributed to this invoice,
-   *  or undefined when it can. The rail keeps one invoice per
-   *  transaction hash, and the first attribution stays. */
-  private _attributionProblem(tx: string, invoiceId: string): string | undefined {
-    if (tx === '') return 'settle_success_without_transaction'
-    const existing = this.txIndex.get(tx)
-    if (existing !== undefined && existing !== invoiceId) {
-      return `transaction_already_attributed: ${tx} belongs to invoice ${existing}`
+  /** Local transaction attribution. Returns the normalized hash when
+   *  the reported transaction can be attributed to this invoice, or the
+   *  reason it cannot. The value crosses a runtime boundary (an HTTP
+   *  adapter), so its type is not trusted: it must be a 32-byte hex
+   *  hash, and it is compared in lowercase. The rail keeps one invoice
+   *  per transaction hash, and the first attribution stays. This does
+   *  not check the chain. */
+  private _attribute(tx: unknown, invoiceId: string): { tx: string } | { problem: string } {
+    if (tx === undefined || tx === null || tx === '') {
+      return { problem: 'settle_success_without_transaction' }
     }
-    return undefined
+    const normalized = _normalizeTxHash(tx)
+    if (normalized === undefined) {
+      return { problem: 'settle_success_with_unusable_transaction' }
+    }
+    const existing = this.txIndex.get(normalized)
+    if (existing !== undefined && existing !== invoiceId) {
+      return { problem: `transaction_already_attributed: ${normalized} belongs to invoice ${existing}` }
+    }
+    return { tx: normalized }
   }
 
   private _applyResolution(
@@ -540,25 +554,26 @@ export class X402PaymentRail implements PaymentRail {
     // here. An invoice that is no longer unknown is never rewritten.
     if (cached.status !== 'settlement_unknown') return
     if (resolution.settled) {
-      const problem = this._attributionProblem(resolution.transaction, invoiceId)
-      if (problem !== undefined) {
-        throw new Error(`cannot resolve invoice ${invoiceId} as settled: ${problem}`)
+      const attribution = this._attribute(resolution.transaction, invoiceId)
+      if ('problem' in attribution) {
+        throw new Error(`cannot resolve invoice ${invoiceId} as settled: ${attribution.problem}`)
       }
+      const txHash = attribution.tx
       cached.status = 'confirmed'
       cached.settled = {
         success: true,
         payer: resolution.payer,
-        transaction: resolution.transaction,
+        transaction: txHash,
         network: this.config.network,
       }
       cached.metadata = {
         ...cached.metadata,
-        tx_hash: resolution.transaction,
+        tx_hash: txHash,
         payer: resolution.payer,
         confirmed_at: new Date().toISOString(),
         settlement_resolved_after_unknown: true,
       }
-      this.txIndex.set(resolution.transaction, invoiceId)
+      this.txIndex.set(txHash, invoiceId)
     } else {
       cached.status = 'failed'
       cached.metadata = {
@@ -578,6 +593,14 @@ export class X402PaymentRail implements PaymentRail {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────
+
+/** A 32-byte EVM transaction hash in lowercase, or undefined when the
+ *  value is not one. The reference adapter settles EIP-3009 transfers
+ *  on EVM networks only. */
+function _normalizeTxHash(tx: unknown): string | undefined {
+  if (typeof tx !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(tx)) return undefined
+  return tx.toLowerCase()
+}
 
 function _stripInternal(c: CachedInvoice): PaymentInvoice {
   const {
