@@ -67,23 +67,47 @@ Ed25519 over RFC 8785 JCS canonical bytes, identical to AP2 / ACP / MPP / Stripe
 
 The wire-level x402 signature is the EIP-712 / EIP-3009 signature over the transfer authorization; that's a secp256k1 signature owned by the payer's wallet, orthogonal to the APS Ed25519 audit signature.
 
-## Settlement attempts across a restart
+## Recovery of unresolved settlement attempts
 
 The rail keeps invoices in memory. A process that stops while a settle request is in progress loses the invoice, the payload and the fact that the request was sent.
 
-`config.attemptStore` closes that gap for the settle call. It is an interface the caller implements over its own storage.
+`config.attemptStore` lets a restarted process find those attempts. It is an interface the caller implements over its own storage. It does not make payment processing durable and it does not give exactly-once settlement. It recovers attempts whose result is not known.
 
 - `recordAttempt` runs after verify and before the settle request. If it rejects, the rail throws, makes no settle call and leaves the invoice pending.
 - `closeAttempt` runs when the invoice reaches `confirmed` or `failed`. An attempt whose result is unknown stays open.
 - `listOpenAttempts` returns the attempts that were recorded and not closed.
 
-After a restart, call `rail.recoverOpenAttempts()` once before serving requests. It loads each open attempt this instance does not know and puts the invoice in `settlement_unknown`. It makes no settle call. `checkStatus` with a `settlementResolver`, or `resolveSettlement`, then gives each one its definite result and closes the attempt.
+### Startup
 
-What this does not cover:
+With a store configured, `submitPayment` throws until `recoverOpenAttempts()` has completed on that instance. Call it before serving requests.
+
+```ts
+const rail = createX402Rail({ ...config, attemptStore, settlementResolver })
+const recovered = await rail.recoverOpenAttempts()  // throws: do not serve payments
+// each id in `recovered` is now in settlement_unknown
+```
+
+Recovery loads each open attempt and puts its invoice in `settlement_unknown`. It makes no settle call, and `submitPayment` refuses an invoice in that status, so a recovered attempt cannot lead to a second settle request through the rail. `checkStatus` with a `settlementResolver`, or `resolveSettlement`, then gives each one its definite result and closes the attempt.
+
+If recovery throws, nothing was loaded and `submitPayment` stays refused. Recovery checks each record before loading any: the invoice id must match the invoice inside the record, the authorization fields and the payment requirements must be present, the start time must be a timestamp, and two open records for one invoice must be identical.
+
+### What a store must guarantee
+
+- One open record per invoice id. `recordAttempt` for an invoice that already has an open record replaces that record as a whole. A write can be stored and still reject, for example when the acknowledgement is lost. The rail then leaves the invoice pending, and a retry writes again for the same invoice, possibly with a different payload.
+- Once `recordAttempt` resolves, `listOpenAttempts` returns exactly the record that was passed in, until it is closed.
+
+A record can exist for an attempt whose settle request was never sent, when the write was stored and then rejected and nobody retried. Recovery loads it as `settlement_unknown`, and the resolver or the operator closes it as not settled.
+
+### Stored authorizations
+
+The record holds the signed payment authorization. A facilitator can still execute it until `validBefore`. Treat the store like a credential store: restrict who can read it, keep records out of application logs, and delete closed records when your retention rules allow. An unresolved attempt stays in the store past the life of the process that wrote it.
+
+### What this does not cover
 
 - An invoice that was created and never reached the settle step is not stored. After a restart it is unknown to the rail, and no settle request was made for it.
-- Transaction attribution is still per process. A restarted instance does not know which transactions earlier instances attributed, apart from the ones it resolves itself.
+- Closed invoices and transaction attribution stay in memory. A restarted instance does not know which transactions earlier instances attributed, so the rule of one invoice per transaction holds within one process only.
 - The store does not coordinate two instances that run at the same time. Two instances must not accept `submitPayment` for the same invoice.
+- The store is trusted for content. Recovery checks that a record is whole and refers to one invoice. It does not detect a store that returns a different, well formed authorization.
 - If `closeAttempt` fails, the invoice keeps its result, the attempt stays open, and the next recovery asks the resolver again. The error text is kept in `metadata.settlement_attempt_close_error`.
 
 ## Limitations
@@ -92,7 +116,7 @@ What this does not cover:
 |---|---|---|
 | Settlement is asynchronous and facilitator-trusted | The rail returns success after `/settle` reports `success=true`, but on-chain finality lags. | Caller waits for chain finality before downstream actions that depend on irreversibility. |
 | Single facilitator per rail instance | `config.facilitatorVerify` / `config.facilitatorSettle` are pinned at construction; no automatic failover. | Caller wraps multiple facilitators with their own routing/fallback inside the closures. |
-| In-memory invoice cache | Invoice → requirements lookup is `Map`-based and process-local. | `config.attemptStore` keeps settlement attempts across a restart (see above). Other invoice state stays process-local. |
+| In-memory invoice cache | Invoice → requirements lookup is `Map`-based and process-local. | `config.attemptStore` lets a restarted process recover unresolved settlement attempts (see above). Other invoice state, including transaction attribution, stays process-local. |
 | `sendPayment` is unsupported | x402 is a pull protocol from the resource server's perspective. | Outbound payments use a different rail (nano, MPP, etc.); calling `sendPayment` throws. |
 | No native multi-network policy | The rail is pinned to a single `network` per instance. | Construct one rail per network and route at the gateway layer. |
 | EIP-3009 signature shape is fixed | Only the `'exact'` scheme is wired. | New schemes (`upto`, etc., when standardized) require an `X402_VERSION` bump and a scheme dispatch in `submitPayment`. |
