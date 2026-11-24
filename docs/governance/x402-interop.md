@@ -21,7 +21,7 @@ APS treats x402 like any other binding rail: gate the requirements against a del
 This adapter binds APS V2 governance at the rail surface:
 
 - **Invoice creation** (`createInvoice`): build an `X402PaymentRequirements` valid as a 402 response body. Caches it under an invoice id so the resource server can reassemble the wire body.
-- **Verify-then-settle** (`submitPayment`): drive the facilitator `/verify` and `/settle` calls in sequence; flip the cached invoice to `confirmed`, `failed` or `settlement_unknown`; return an `X402SubmitOutcome` for caller-side receipt or denial minting. Switch on `outcome.settlement` (`settled`, `refused`, `unknown`, `not_attempted`). `unknown` means the settle call threw and the payment may have settled: mint no denial, release no budget reservation and issue no replacement invoice until `resolveSettlement` or the configured `settlementResolver` gives a definite result. The facilitator adapter must throw when it does not know the result and return `success: false` only for a definite refusal. Invoice state is in memory, so an attempt in progress is lost on restart.
+- **Verify-then-settle** (`submitPayment`): drive the facilitator `/verify` and `/settle` calls in sequence; flip the cached invoice to `confirmed`, `failed` or `settlement_unknown`; return an `X402SubmitOutcome` for caller-side receipt or denial minting. Switch on `outcome.settlement` (`settled`, `refused`, `unknown`, `not_attempted`). `unknown` means the settle call threw and the payment may have settled: mint no denial, release no budget reservation and issue no replacement invoice until `resolveSettlement` or the configured `settlementResolver` gives a definite result. The facilitator adapter must throw when it does not know the result and return `success: false` only for a definite refusal.  A success answer with no transaction hash, or with a hash already attributed to another invoice, also leaves the invoice in `settlement_unknown`. Invoice state is in memory, so an attempt in progress is lost on restart.
 - **Wallet revocation** (`revokeWallet`): tracks revoked wallet ids in-memory.
 
 The adapter does NOT run the facilitator, sign EIP-3009 authorizations, submit on-chain transactions, implement the X-PAYMENT header transport, or persist invoice state. Those are caller and facilitator responsibilities.
@@ -34,6 +34,7 @@ rail.createInvoice(opts)                               // → PaymentInvoice
 rail.checkStatus(invoiceId)                            // → PaymentInvoice
 rail.submitPayment(invoiceId, payload)                 // → X402SubmitOutcome
 rail.verifyTransaction(txHash, expectedAmount?)        // → VerifyTransactionResult
+rail.resolveSettlement(invoiceId, resolution)          // → PaymentInvoice (only from settlement_unknown)
 rail.revokeWallet(walletId)                            // → boolean
 rail.getRequirements(invoiceId)                        // → X402PaymentRequirements | undefined
 ```

@@ -18,11 +18,16 @@
 //   4. The resource server passes (invoice_id, payload) to
 //      submitPayment(); the rail calls facilitator /verify, then
 //      /settle, then resolves the X402SubmitOutcome.
-//   5. Caller emits a signed APS PaymentReceipt with tx_proof set to
-//      X402SubmitOutcome.transaction (the on-chain tx hash). Failure
-//      paths emit a signed PaymentDenial with denial_reason 'rail_error'
-//      and reason_detail carrying the facilitator's invalidReason or
-//      errorReason.
+//   5. Caller switches on X402SubmitOutcome.settlement:
+//      - 'settled': emit a signed APS PaymentReceipt with tx_proof set
+//        to X402SubmitOutcome.transaction (the on-chain tx hash).
+//      - 'not_attempted' or 'refused': emit a signed PaymentDenial with
+//        denial_reason 'rail_error' and reason_detail carrying the
+//        facilitator's invalidReason or errorReason.
+//      - 'unknown': the payment may have settled. Emit neither a
+//        receipt nor a denial, keep any budget reservation, issue no
+//        replacement invoice, and resolve the result with
+//        resolveSettlement() or the configured settlementResolver.
 //
 // Rail does NOT:
 //   - Sign EIP-3009 authorizations (sender does that off-chain)
@@ -450,6 +455,30 @@ export class X402PaymentRail implements PaymentRail {
       return out
     }
 
+    // The facilitator reports success. Confirm only when the transaction
+    // it names can be attributed to this invoice. A missing transaction,
+    // or one already attributed to another invoice, leaves the invoice
+    // unresolved: money may have moved, so it is not a failure either.
+    const problem = this._attributionProblem(settleResp.transaction, invoiceId)
+    if (problem !== undefined) {
+      cached.status = 'settlement_unknown'
+      cached.receivedPayload = payload
+      cached.metadata = {
+        ...cached.metadata,
+        settlement_attribution_problem: problem,
+        reported_tx_hash: settleResp.transaction,
+        reported_payer: settleResp.payer,
+      }
+      this.invoices.set(invoiceId, cached)
+      return {
+        verified: true,
+        settlement: 'unknown',
+        settlementUnknown: true,
+        settleErrorReason: problem,
+        payer: settleResp.payer,
+      }
+    }
+
     // Confirmed
     cached.status = 'confirmed'
     cached.receivedPayload = payload
@@ -461,7 +490,7 @@ export class X402PaymentRail implements PaymentRail {
       confirmed_at: new Date().toISOString(),
     }
     this.invoices.set(invoiceId, cached)
-    this._indexTransaction(settleResp.transaction, invoiceId, cached)
+    this.txIndex.set(settleResp.transaction, invoiceId)
     return {
       verified: true,
       settlement: 'settled',
@@ -490,18 +519,16 @@ export class X402PaymentRail implements PaymentRail {
     return _stripInternal(cached)
   }
 
-  /** Records which invoice a transaction settled. A transaction that is
-   *  already attributed to another invoice keeps its first attribution,
-   *  and the conflict is noted on this invoice. */
-  private _indexTransaction(tx: string, invoiceId: string, cached: CachedInvoice): void {
-    if (tx === '') return
+  /** Why a reported transaction cannot be attributed to this invoice,
+   *  or undefined when it can. The rail keeps one invoice per
+   *  transaction hash, and the first attribution stays. */
+  private _attributionProblem(tx: string, invoiceId: string): string | undefined {
+    if (tx === '') return 'settle_success_without_transaction'
     const existing = this.txIndex.get(tx)
     if (existing !== undefined && existing !== invoiceId) {
-      cached.metadata = { ...cached.metadata, tx_hash_also_attributed_to: existing }
-      this.invoices.set(invoiceId, cached)
-      return
+      return `transaction_already_attributed: ${tx} belongs to invoice ${existing}`
     }
-    this.txIndex.set(tx, invoiceId)
+    return undefined
   }
 
   private _applyResolution(
@@ -513,11 +540,9 @@ export class X402PaymentRail implements PaymentRail {
     // here. An invoice that is no longer unknown is never rewritten.
     if (cached.status !== 'settlement_unknown') return
     if (resolution.settled) {
-      const existing = resolution.transaction === '' ? undefined : this.txIndex.get(resolution.transaction)
-      if (existing !== undefined && existing !== invoiceId) {
-        throw new Error(
-          `transaction ${resolution.transaction} is already attributed to invoice ${existing}`,
-        )
+      const problem = this._attributionProblem(resolution.transaction, invoiceId)
+      if (problem !== undefined) {
+        throw new Error(`cannot resolve invoice ${invoiceId} as settled: ${problem}`)
       }
       cached.status = 'confirmed'
       cached.settled = {
@@ -533,7 +558,7 @@ export class X402PaymentRail implements PaymentRail {
         confirmed_at: new Date().toISOString(),
         settlement_resolved_after_unknown: true,
       }
-      if (resolution.transaction !== '') this.txIndex.set(resolution.transaction, invoiceId)
+      this.txIndex.set(resolution.transaction, invoiceId)
     } else {
       cached.status = 'failed'
       cached.metadata = {
