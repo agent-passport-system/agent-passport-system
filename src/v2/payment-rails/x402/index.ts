@@ -89,6 +89,52 @@ export type SettlementResolver = (query: {
   paymentRequirements: X402PaymentRequirements
 }) => Promise<X402SettlementResolution | undefined>
 
+/** One settlement attempt as an attempt store keeps it. It holds what a
+ *  restarted process needs to rebuild the invoice in
+ *  `settlement_unknown` and to ask a resolver about it. */
+export interface X402SettlementAttempt {
+  invoiceId: string
+  /** The invoice as it was when the attempt started. */
+  invoice: PaymentInvoice
+  paymentRequirements: X402PaymentRequirements
+  paymentPayload: X402PaymentPayload
+  startedAt: string
+}
+
+/** The definite result that closes a recorded attempt. */
+export type X402AttemptOutcome =
+  | { status: 'confirmed'; transaction: string; payer: string }
+  | { status: 'failed'; reason: string }
+
+/** Caller-supplied storage for settlement attempts. The rail keeps its
+ *  state in memory, so without a store a process that stops during a
+ *  settle call leaves no record that the call was made.
+ *
+ *  What a store must guarantee:
+ *  - One open record per invoice id. `recordAttempt` for an invoice id
+ *    that already has an open record replaces that record as a whole.
+ *    A write can be stored and still reject, for example when the
+ *    acknowledgement is lost, and the rail then writes again for the
+ *    same invoice, possibly with a different payload.
+ *  - Once `recordAttempt` resolves, `listOpenAttempts` returns exactly
+ *    the record that was passed in, until it is closed.
+ *
+ *  The record holds a signed payment authorization that a facilitator
+ *  can still execute until it expires. Keep it out of logs, restrict
+ *  who can read the store, and delete closed records when your
+ *  retention rules allow. */
+export interface X402AttemptStore {
+  /** Called after verify and before the settle request is sent. The
+   *  record must be stored when the promise resolves. If it rejects,
+   *  the rail does not call settle. */
+  recordAttempt(attempt: X402SettlementAttempt): Promise<void>
+  /** Called when the invoice reaches `confirmed` or `failed`. An attempt
+   *  whose result is unknown is not closed. */
+  closeAttempt(invoiceId: string, outcome: X402AttemptOutcome): Promise<void>
+  /** Attempts that were recorded and not closed. */
+  listOpenAttempts(): Promise<X402SettlementAttempt[]>
+}
+
 export interface X402RailConfig {
   /** Recipient wallet address used as PaymentRequirements.payTo. */
   payTo: string
@@ -127,6 +173,11 @@ export interface X402RailConfig {
    *  `settlement_unknown`. Return undefined while the result is still
    *  not known. */
   settlementResolver?: SettlementResolver
+  /** Optional. Records each settlement attempt before the settle call,
+   *  so `recoverOpenAttempts` can find attempts a stopped process left
+   *  behind. With a store configured, `submitPayment` throws until
+   *  `recoverOpenAttempts` has completed once on this instance. */
+  attemptStore?: X402AttemptStore
 }
 
 // ── Cached invoice ────────────────────────────────────────────────
@@ -136,6 +187,9 @@ interface CachedInvoice extends PaymentInvoice {
   requirements: X402PaymentRequirements
   /** PaymentPayload received via submitPayment, when present. */
   receivedPayload?: X402PaymentPayload
+  /** The requirements that went to the facilitator with that payload.
+   *  Together they are the attempt a resolver is asked about. */
+  submittedRequirements?: X402PaymentRequirements
   /** Settle response, when settled. */
   settled?: X402SettleResponse
 }
@@ -156,6 +210,8 @@ export class X402PaymentRail implements PaymentRail {
    *  its final status. A second concurrent call for the same invoice is
    *  refused, so verify and settle run at most once per invoice. */
   private readonly inFlight = new Set<string>()
+  /** True once recoverOpenAttempts has completed on this instance. */
+  private recoveryDone = false
 
   constructor(config: X402RailConfig) {
     this.config = config
@@ -182,7 +238,7 @@ export class X402PaymentRail implements PaymentRail {
       maxTimeoutSeconds,
     }
     if (this.config.extra !== undefined) {
-      requirements.extra = this.config.extra
+      requirements.extra = structuredClone(this.config.extra)
     }
 
     const invoiceId = randomUUID()
@@ -190,7 +246,9 @@ export class X402PaymentRail implements PaymentRail {
     const expiresAt = new Date(now.getTime() + maxTimeoutSeconds * 1000).toISOString()
 
     const metadata: Record<string, unknown> = {
-      x402_requirements: requirements,
+      // A copy for display. The rail verifies and settles against its
+      // own `requirements`, which no public object refers to.
+      x402_requirements: structuredClone(requirements),
       x402_version: X402_VERSION,
     }
     if (opts.settlement_id !== undefined) metadata.settlement_id = opts.settlement_id
@@ -210,8 +268,9 @@ export class X402PaymentRail implements PaymentRail {
     }
     if (opts.memo !== undefined) invoice.memo = opts.memo
 
-    this.invoices.set(invoiceId, { ...invoice, requirements })
-    return invoice
+    const cached: CachedInvoice = { ...invoice, requirements }
+    this.invoices.set(invoiceId, cached)
+    return _stripInternal(cached)
   }
 
   async checkStatus(invoiceId: string): Promise<PaymentInvoice> {
@@ -242,10 +301,14 @@ export class X402PaymentRail implements PaymentRail {
     ) {
       let resolution: X402SettlementResolution | undefined
       try {
+        // Copies of the attempt that was submitted, on every lookup. A
+        // resolver that changes what it is given changes only its copy.
         resolution = await this.config.settlementResolver({
           invoiceId,
-          paymentPayload: cached.receivedPayload,
-          paymentRequirements: cached.requirements,
+          paymentPayload: structuredClone(cached.receivedPayload),
+          paymentRequirements: structuredClone(
+            cached.submittedRequirements ?? cached.requirements,
+          ),
         })
       } catch {
         resolution = undefined
@@ -308,7 +371,8 @@ export class X402PaymentRail implements PaymentRail {
       verified: amountMatches && cached.settled.success,
       amount_base_units: cached.amount_base_units,
       sender: cached.settled.payer,
-      receiver: cached.requirements.payTo,
+      // The recipient the facilitator was given for this settlement.
+      receiver: (cached.submittedRequirements ?? cached.requirements).payTo,
       timestamp: cached.created_at,
     }
   }
@@ -359,6 +423,13 @@ export class X402PaymentRail implements PaymentRail {
     if (cached === undefined) {
       throw new Error(`invoice ${invoiceId} not found in adapter cache`)
     }
+    if (this.config.attemptStore !== undefined && !this.recoveryDone) {
+      throw new Error(
+        'an attempt store is configured and recoverOpenAttempts() has not completed; ' +
+          'submitPayment is refused until it has, so attempts a stopped process ' +
+          'left behind are loaded before any new settlement',
+      )
+    }
     if (cached.status !== 'pending') {
       throw new Error(
         `invoice ${invoiceId} not pending (status=${cached.status}); ` +
@@ -382,14 +453,22 @@ export class X402PaymentRail implements PaymentRail {
   private async _verifyAndSettle(
     invoiceId: string,
     cached: CachedInvoice,
-    payload: X402PaymentPayload,
+    callerPayload: X402PaymentPayload,
   ): Promise<X402SubmitOutcome> {
+    // Taken before the first await. The caller keeps its own object and
+    // can change it while verify or the store write is pending, so the
+    // rail works from its own copies. Verify, the stored record and
+    // settle each get a separate copy of the same values, and none of
+    // them can change what the others see.
+    const payload = structuredClone(callerPayload)
+    const requirements = structuredClone(cached.requirements)
+    cached.submittedRequirements = requirements
 
     // Verify
     const verifyReq: X402VerifyRequest = {
       x402Version: X402_VERSION,
-      paymentPayload: payload,
-      paymentRequirements: cached.requirements,
+      paymentPayload: structuredClone(payload),
+      paymentRequirements: structuredClone(requirements),
     }
     let verifyResp: X402VerifyResponse
     try {
@@ -418,11 +497,34 @@ export class X402PaymentRail implements PaymentRail {
       return out
     }
 
+    // Record the attempt before the settle request leaves the process.
+    // A store that cannot take the record stops the attempt here, with
+    // the invoice still pending, because a settle call with no record
+    // is the case the store exists to prevent.
+    const store = this.config.attemptStore
+    if (store !== undefined) {
+      try {
+        await store.recordAttempt({
+          invoiceId,
+          invoice: _stripInternal(cached),
+          paymentRequirements: structuredClone(requirements),
+          paymentPayload: structuredClone(payload),
+          startedAt: new Date().toISOString(),
+        })
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        throw new Error(
+          `invoice ${invoiceId}: the settlement attempt could not be recorded ` +
+            `(${msg}); settle was not called and the invoice is still pending`,
+        )
+      }
+    }
+
     // Settle
     const settleReq: X402SettleRequest = {
       x402Version: X402_VERSION,
-      paymentPayload: payload,
-      paymentRequirements: cached.requirements,
+      paymentPayload: structuredClone(payload),
+      paymentRequirements: structuredClone(requirements),
     }
     let settleResp: X402SettleResponse
     try {
@@ -448,6 +550,10 @@ export class X402PaymentRail implements PaymentRail {
       cached.status = 'failed'
       cached.receivedPayload = payload
       this.invoices.set(invoiceId, cached)
+      this._closeAttempt(invoiceId, cached, {
+        status: 'failed',
+        reason: settleResp.errorReason ?? 'settlement_failed',
+      })
       const out: X402SubmitOutcome = {
         verified: true,
         settlement: 'refused',
@@ -495,6 +601,11 @@ export class X402PaymentRail implements PaymentRail {
     }
     this.invoices.set(invoiceId, cached)
     this.txIndex.set(txHash, invoiceId)
+    this._closeAttempt(invoiceId, cached, {
+      status: 'confirmed',
+      transaction: txHash,
+      payer: settleResp.payer,
+    })
     return {
       verified: true,
       settlement: 'settled',
@@ -574,6 +685,12 @@ export class X402PaymentRail implements PaymentRail {
         settlement_resolved_after_unknown: true,
       }
       this.txIndex.set(txHash, invoiceId)
+      this.invoices.set(invoiceId, cached)
+      this._closeAttempt(invoiceId, cached, {
+        status: 'confirmed',
+        transaction: txHash,
+        payer: resolution.payer,
+      })
     } else {
       cached.status = 'failed'
       cached.metadata = {
@@ -581,14 +698,106 @@ export class X402PaymentRail implements PaymentRail {
         settlement_resolved_after_unknown: true,
         settlement_failure_reason: resolution.reason,
       }
+      this.invoices.set(invoiceId, cached)
+      this._closeAttempt(invoiceId, cached, { status: 'failed', reason: resolution.reason })
     }
-    this.invoices.set(invoiceId, cached)
+  }
+
+  /** Tells the attempt store that an invoice has a definite result. The
+   *  invoice status is already written when this runs. A store that
+   *  fails here leaves the attempt open, and a later recovery then
+   *  treats it as unknown and asks the resolver again, which is the
+   *  safe direction. The failure is noted on the invoice. */
+  private _closeAttempt(
+    invoiceId: string,
+    cached: CachedInvoice,
+    outcome: X402AttemptOutcome,
+  ): void {
+    const store = this.config.attemptStore
+    if (store === undefined) return
+    const note = (e: unknown): void => {
+      const msg = e instanceof Error ? e.message : String(e)
+      cached.metadata = { ...cached.metadata, settlement_attempt_close_error: msg }
+      this.invoices.set(invoiceId, cached)
+    }
+    try {
+      store.closeAttempt(invoiceId, outcome).catch(note)
+    } catch (e) {
+      note(e)
+    }
+  }
+
+  /** Loads the attempts the store holds open and that this instance
+   *  does not know, and puts each invoice in `settlement_unknown`. Call
+   *  it once at startup, before serving requests: with a store
+   *  configured, submitPayment throws until this has completed. If it
+   *  throws, nothing was loaded and submitPayment stays refused. It
+   *  makes no settle call. checkStatus with a settlementResolver, or
+   *  resolveSettlement, then gives each one its definite result.
+   *  Returns the invoice ids it loaded. */
+  async recoverOpenAttempts(): Promise<string[]> {
+    const store = this.config.attemptStore
+    if (store === undefined) return []
+    const open = await store.listOpenAttempts()
+    if (!Array.isArray(open)) {
+      throw new Error('attempt store did not return a list of settlement attempts')
+    }
+    // Check every record before loading any, so a store with one bad
+    // record loads nothing and submitPayment stays refused.
+    const byInvoice = new Map<string, { attempt: X402SettlementAttempt; text: string }>()
+    for (const attempt of open) {
+      const problem = _attemptProblem(attempt)
+      if (problem !== undefined) {
+        throw new Error(`attempt store returned a record that is not a settlement attempt: ${problem}`)
+      }
+      const text = JSON.stringify(attempt)
+      const seen = byInvoice.get(attempt.invoiceId)
+      if (seen === undefined) {
+        byInvoice.set(attempt.invoiceId, { attempt, text })
+      } else if (seen.text !== text) {
+        throw new Error(
+          `attempt store returned two different open records for invoice ${attempt.invoiceId}`,
+        )
+      }
+    }
+    // Build every invoice first. Copying a record can throw, and a
+    // recovery that throws must leave the live cache untouched.
+    const built = new Map<string, CachedInvoice>()
+    for (const { attempt } of byInvoice.values()) {
+      if (this.invoices.has(attempt.invoiceId)) continue
+      const requirements = structuredClone(attempt.paymentRequirements)
+      built.set(attempt.invoiceId, {
+        ...structuredClone(attempt.invoice),
+        status: 'settlement_unknown',
+        metadata: {
+          ...structuredClone(attempt.invoice.metadata ?? {}),
+          settlement_attempt_recovered: true,
+          settlement_attempt_started_at: attempt.startedAt,
+        },
+        requirements,
+        submittedRequirements: structuredClone(requirements),
+        receivedPayload: structuredClone(attempt.paymentPayload),
+      })
+    }
+    // Nothing below throws or awaits, so the cache changes as a whole.
+    const recovered: string[] = []
+    for (const [invoiceId, invoice] of built) {
+      if (this.invoices.has(invoiceId)) continue
+      this.invoices.set(invoiceId, invoice)
+      recovered.push(invoiceId)
+    }
+    this.recoveryDone = true
+    return recovered
   }
 
   /** Returns the X402PaymentRequirements cached for an invoice. Used
    *  by the resource server to assemble the 402 response body. */
   getRequirements(invoiceId: string): X402PaymentRequirements | undefined {
-    return this.invoices.get(invoiceId)?.requirements
+    // A copy: the caller serializes it into the 402 response, and a
+    // change to the returned object must not change what the rail
+    // verifies and settles against.
+    const requirements = this.invoices.get(invoiceId)?.requirements
+    return requirements === undefined ? undefined : structuredClone(requirements)
   }
 }
 
@@ -602,14 +811,50 @@ function _normalizeTxHash(tx: unknown): string | undefined {
   return tx.toLowerCase()
 }
 
+/** The reason a stored record cannot be loaded as a settlement attempt,
+ *  or undefined when it can. The store is trusted for content. This
+ *  checks that the record is whole and refers to one invoice. */
+function _attemptProblem(attempt: unknown): string | undefined {
+  const isObj = (v: unknown): v is Record<string, unknown> =>
+    v !== null && typeof v === 'object' && !Array.isArray(v)
+  const isText = (v: unknown): v is string => typeof v === 'string' && v !== ''
+  if (!isObj(attempt)) return 'not an object'
+  if (!isText(attempt.invoiceId)) return 'invoiceId missing'
+  const id = attempt.invoiceId
+  if (!isObj(attempt.invoice)) return `invoice missing (${id})`
+  if (attempt.invoice.invoice_id !== id) {
+    return `invoice.invoice_id does not match invoiceId (${id})`
+  }
+  if (!isText(attempt.startedAt) || Number.isNaN(Date.parse(attempt.startedAt))) {
+    return `startedAt is not a timestamp (${id})`
+  }
+  const req = attempt.paymentRequirements
+  if (!isObj(req)) return `paymentRequirements missing (${id})`
+  for (const k of ['scheme', 'network', 'maxAmountRequired', 'payTo', 'asset']) {
+    if (!isText(req[k])) return `paymentRequirements.${k} missing (${id})`
+  }
+  const pay = attempt.paymentPayload
+  if (!isObj(pay) || !isObj(pay.payload)) return `paymentPayload missing (${id})`
+  if (!isText(pay.payload.signature)) return `paymentPayload signature missing (${id})`
+  const auth = pay.payload.authorization
+  if (!isObj(auth)) return `paymentPayload authorization missing (${id})`
+  for (const k of ['from', 'to', 'value', 'validAfter', 'validBefore', 'nonce']) {
+    if (!isText(auth[k])) return `authorization.${k} missing (${id})`
+  }
+  return undefined
+}
+
 function _stripInternal(c: CachedInvoice): PaymentInvoice {
   const {
     requirements: _r,
     receivedPayload: _p,
+    submittedRequirements: _q,
     settled: _s,
     ...rest
   } = c
-  return rest
+  // Detached: a caller that changes an invoice it was given, including
+  // its metadata, does not change the rail's own state.
+  return structuredClone(rest)
 }
 
 /** Format an atomic-units string as a decimal string with `decimals`

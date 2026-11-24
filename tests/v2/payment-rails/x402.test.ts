@@ -42,6 +42,11 @@ import {
   X402PaymentRail,
   createX402Rail,
 } from '../../../src/v2/payment-rails/x402/index.js'
+import type {
+  X402AttemptOutcome,
+  X402AttemptStore,
+  X402SettlementAttempt,
+} from '../../../src/v2/payment-rails/x402/index.js'
 import {
   X402_VERSION,
   type EIP3009Authorization,
@@ -1001,5 +1006,658 @@ describe('X402PaymentRail — default constants', () => {
 
   it('exports USDC contract addresses for Base mainnet and Sepolia', () => {
     assert.equal(USDC_BASE_MAINNET, '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913')
+  })
+})
+
+describe('X402PaymentRail — public invoices are detached from rail state', () => {
+  type Meta = { x402_requirements: { payTo: string; maxAmountRequired: string } }
+  const OTHER = '0x' + 'd'.repeat(40)
+
+  it('changing a public invoice after settlement does not change what verifyTransaction reports', async () => {
+    const rail = _rail()
+    const invoice = await rail.createInvoice({ amount_base_units: '1000000' })
+    await rail.submitPayment(invoice.invoice_id, _payload())
+
+    ;(invoice.metadata as Meta).x402_requirements.payTo = OTHER
+    const later = await rail.checkStatus(invoice.invoice_id)
+    ;(later.metadata as Meta).x402_requirements.payTo = OTHER
+    later.amount_base_units = '1'
+
+    const v = await rail.verifyTransaction(TX_HASH, '1000000')
+    assert.equal(v.verified, true)
+    assert.equal(v.receiver, PAY_TO)
+    assert.equal(v.amount_base_units, '1000000')
+    const again = await rail.checkStatus(invoice.invoice_id)
+    assert.equal((again.metadata as Meta).x402_requirements.payTo, PAY_TO)
+  })
+
+  it('changing a public invoice before submit does not change what is verified and settled', async () => {
+    const sent: string[] = []
+    const rail = createX402Rail({
+      payTo: PAY_TO,
+      asset: USDC_BASE_MAINNET,
+      network: 'base',
+      resource: 'https://example.com/r',
+      facilitatorVerify: async (req) => {
+        sent.push(`verify ${req.paymentRequirements.payTo} ${req.paymentRequirements.maxAmountRequired}`)
+        return { isValid: true, payer: PAYER }
+      },
+      facilitatorSettle: async (req) => {
+        sent.push(`settle ${req.paymentRequirements.payTo} ${req.paymentRequirements.maxAmountRequired}`)
+        return { success: true, payer: PAYER, transaction: TX_HASH, network: 'base' }
+      },
+    })
+    const invoice = await rail.createInvoice({ amount_base_units: '1000000' })
+    const meta = invoice.metadata as Meta
+    meta.x402_requirements.payTo = OTHER
+    meta.x402_requirements.maxAmountRequired = '1'
+    await rail.submitPayment(invoice.invoice_id, _payload())
+    assert.deepEqual(sent, [`verify ${PAY_TO} 1000000`, `settle ${PAY_TO} 1000000`])
+  })
+
+  it('a change to config.extra after createInvoice does not reach the requirements', async () => {
+    const extra: Record<string, unknown> = { name: 'USD Coin', version: '2' }
+    const rail = createX402Rail({
+      payTo: PAY_TO,
+      asset: USDC_BASE_MAINNET,
+      network: 'base',
+      resource: 'https://example.com/r',
+      extra,
+      facilitatorVerify: alwaysVerify(),
+      facilitatorSettle: alwaysSettle(),
+    })
+    const invoice = await rail.createInvoice({ amount_base_units: '1000000' })
+    extra.name = 'changed'
+    assert.deepEqual(rail.getRequirements(invoice.invoice_id)?.extra, { name: 'USD Coin', version: '2' })
+  })
+})
+
+// ── Attempt store (issue #273) ────────────────────────────────────
+
+/** A store that keeps records as JSON text, the way a database row or
+ *  a file would, so a test fails if the rail depends on object
+ *  identity surviving storage. `log` records the order of calls. */
+function memoryStore(log: string[] = []) {
+  const open = new Map<string, string>()
+  const closed = new Map<string, X402AttemptOutcome>()
+  let failRecord = false
+  let failClose = false
+  const store: X402AttemptStore = {
+    async recordAttempt(attempt: X402SettlementAttempt) {
+      log.push('record')
+      if (failRecord) throw new Error('disk full')
+      open.set(attempt.invoiceId, JSON.stringify(attempt))
+    },
+    async closeAttempt(invoiceId: string, outcome: X402AttemptOutcome) {
+      log.push('close')
+      if (failClose) throw new Error('store offline')
+      open.delete(invoiceId)
+      closed.set(invoiceId, outcome)
+    },
+    async listOpenAttempts() {
+      return [...open.values()].map((t) => JSON.parse(t) as X402SettlementAttempt)
+    },
+  }
+  return {
+    store,
+    open,
+    closed,
+    failRecord: (v: boolean) => { failRecord = v },
+    failClose: (v: boolean) => { failClose = v },
+  }
+}
+
+function storeRail(
+  store: X402AttemptStore,
+  extra: Partial<Parameters<typeof createX402Rail>[0]> = {},
+): X402PaymentRail {
+  return createX402Rail({
+    payTo: PAY_TO,
+    asset: USDC_BASE_MAINNET,
+    network: 'base',
+    resource: 'https://example.com/r',
+    facilitatorVerify: alwaysVerify(),
+    facilitatorSettle: alwaysSettle(),
+    attemptStore: store,
+    ...extra,
+  })
+}
+
+/** A rail with a store that has completed its startup recovery. */
+async function readyRail(
+  store: X402AttemptStore,
+  extra: Partial<Parameters<typeof createX402Rail>[0]> = {},
+): Promise<X402PaymentRail> {
+  const rail = storeRail(store, extra)
+  await rail.recoverOpenAttempts()
+  return rail
+}
+
+describe('X402PaymentRail — attempt store', () => {
+  it('records the attempt after verify and before the settle call', async () => {
+    const log: string[] = []
+    const m = memoryStore(log)
+    const rail = await readyRail(m.store, {
+      facilitatorVerify: async () => { log.push('verify'); return { isValid: true, payer: PAYER } },
+      facilitatorSettle: async () => {
+        log.push('settle')
+        assert.equal(m.open.size, 1, 'the record is stored before settle runs')
+        return { success: true, payer: PAYER, transaction: TX_HASH, network: 'base' }
+      },
+    })
+    const invoice = await rail.createInvoice({ amount_base_units: '1000000' })
+    const out = await rail.submitPayment(invoice.invoice_id, _payload())
+    assert.equal(out.settlement, 'settled')
+    assert.deepEqual(log, ['verify', 'record', 'settle', 'close'])
+    assert.equal(m.open.size, 0)
+    assert.deepEqual(m.closed.get(invoice.invoice_id), {
+      status: 'confirmed',
+      transaction: TX_HASH,
+      payer: PAYER,
+    })
+  })
+
+  it('does not record an attempt when verify fails', async () => {
+    const log: string[] = []
+    const m = memoryStore(log)
+    const rail = await readyRail(m.store, { facilitatorVerify: neverVerify() })
+    const invoice = await rail.createInvoice({ amount_base_units: '1000000' })
+    await rail.submitPayment(invoice.invoice_id, _payload())
+    assert.deepEqual(log, [])
+  })
+
+  it('does not call settle when the record cannot be stored, and the invoice stays pending', async () => {
+    const m = memoryStore()
+    let settleCalls = 0
+    const rail = await readyRail(m.store, {
+      facilitatorSettle: async () => {
+        settleCalls++
+        return { success: true, payer: PAYER, transaction: TX_HASH, network: 'base' }
+      },
+    })
+    const invoice = await rail.createInvoice({ amount_base_units: '1000000' })
+    m.failRecord(true)
+    await assert.rejects(
+      rail.submitPayment(invoice.invoice_id, _payload()),
+      /could not be recorded \(disk full\); settle was not called/,
+    )
+    assert.equal(settleCalls, 0)
+    assert.equal((await rail.checkStatus(invoice.invoice_id)).status, 'pending')
+
+    // The same invoice can be submitted again once the store works.
+    m.failRecord(false)
+    const out = await rail.submitPayment(invoice.invoice_id, _payload())
+    assert.equal(out.settlement, 'settled')
+    assert.equal(settleCalls, 1)
+  })
+
+  it('closes the attempt as failed when the facilitator refuses', async () => {
+    const m = memoryStore()
+    const rail = await readyRail(m.store, { facilitatorSettle: neverSettle('insufficient_funds') })
+    const invoice = await rail.createInvoice({ amount_base_units: '1000000' })
+    await rail.submitPayment(invoice.invoice_id, _payload())
+    assert.equal(m.open.size, 0)
+    assert.deepEqual(m.closed.get(invoice.invoice_id), {
+      status: 'failed',
+      reason: 'insufficient_funds',
+    })
+  })
+
+  it('leaves the attempt open when the settle result is unknown', async () => {
+    const m = memoryStore()
+    const rail = await readyRail(m.store, {
+      facilitatorSettle: async () => { throw new Error('socket hang up') },
+    })
+    const invoice = await rail.createInvoice({ amount_base_units: '1000000' })
+    const out = await rail.submitPayment(invoice.invoice_id, _payload())
+    assert.equal(out.settlement, 'unknown')
+    assert.equal(m.open.size, 1)
+    assert.equal(m.closed.size, 0)
+  })
+
+  it('a second instance recovers an attempt whose process stopped during settle', async () => {
+    const m = memoryStore()
+    // First process: the settle call never returns, as when the process
+    // is killed while the request is on the wire.
+    const first = await readyRail(m.store, { facilitatorSettle: () => new Promise(() => {}) })
+    const invoice = await first.createInvoice({ amount_base_units: '1000000', memo: 'order 7' })
+    void first.submitPayment(invoice.invoice_id, _payload())
+    await new Promise((r) => setImmediate(r))
+    assert.equal(m.open.size, 1)
+
+    // Second process: same store, empty memory, a resolver that knows
+    // the payment settled.
+    let settleCalls = 0
+    let asked: { invoiceId: string; payer: string } | undefined
+    const second = storeRail(m.store, {
+      facilitatorSettle: async () => {
+        settleCalls++
+        return { success: true, payer: PAYER, transaction: TX_HASH, network: 'base' }
+      },
+      settlementResolver: async (q) => {
+        asked = { invoiceId: q.invoiceId, payer: q.paymentPayload.payload.authorization.from }
+        return { settled: true, transaction: TX_HASH, payer: PAYER }
+      },
+    })
+    await assert.rejects(second.checkStatus(invoice.invoice_id), /not found/)
+
+    const recovered = await second.recoverOpenAttempts()
+    assert.deepEqual(recovered, [invoice.invoice_id])
+    assert.equal(settleCalls, 0, 'recovery makes no settle call')
+    await assert.rejects(
+      second.submitPayment(invoice.invoice_id, _payload()),
+      /not pending \(status=settlement_unknown\)/,
+    )
+
+    const after = await second.checkStatus(invoice.invoice_id)
+    assert.equal(after.status, 'confirmed')
+    assert.equal(after.memo, 'order 7')
+    assert.equal(after.metadata?.settlement_attempt_recovered, true)
+    assert.deepEqual(asked, { invoiceId: invoice.invoice_id, payer: PAYER })
+    assert.equal(settleCalls, 0)
+    assert.equal(m.open.size, 0)
+    const verified = await second.verifyTransaction(TX_HASH, '1000000')
+    assert.equal(verified.verified, true)
+  })
+
+  it('a recovered attempt with no resolver stays unknown until resolveSettlement', async () => {
+    const m = memoryStore()
+    const first = await readyRail(m.store, { facilitatorSettle: () => new Promise(() => {}) })
+    const invoice = await first.createInvoice({ amount_base_units: '1000000' })
+    void first.submitPayment(invoice.invoice_id, _payload())
+    await new Promise((r) => setImmediate(r))
+
+    const second = storeRail(m.store)
+    await second.recoverOpenAttempts()
+    assert.equal((await second.checkStatus(invoice.invoice_id)).status, 'settlement_unknown')
+    const resolved = second.resolveSettlement(invoice.invoice_id, { settled: false, reason: 'authorization_expired' })
+    assert.equal(resolved.status, 'failed')
+    assert.deepEqual(m.closed.get(invoice.invoice_id), {
+      status: 'failed',
+      reason: 'authorization_expired',
+    })
+    assert.equal(m.open.size, 0)
+  })
+
+  it('recovery skips invoices this instance already knows and can run twice', async () => {
+    const m = memoryStore()
+    const rail = await readyRail(m.store, {
+      facilitatorSettle: async () => { throw new Error('timeout') },
+    })
+    const invoice = await rail.createInvoice({ amount_base_units: '1000000' })
+    await rail.submitPayment(invoice.invoice_id, _payload())
+    assert.deepEqual(await rail.recoverOpenAttempts(), [])
+
+    const second = storeRail(m.store)
+    assert.deepEqual(await second.recoverOpenAttempts(), [invoice.invoice_id])
+    assert.deepEqual(await second.recoverOpenAttempts(), [])
+  })
+
+  it('a store that fails on close leaves the result in place and the attempt open', async () => {
+    const m = memoryStore()
+    m.failClose(true)
+    const rail = await readyRail(m.store)
+    const invoice = await rail.createInvoice({ amount_base_units: '1000000' })
+    const out = await rail.submitPayment(invoice.invoice_id, _payload())
+    assert.equal(out.settlement, 'settled')
+    await new Promise((r) => setImmediate(r))
+    const after = await rail.checkStatus(invoice.invoice_id)
+    assert.equal(after.status, 'confirmed')
+    assert.equal(after.metadata?.settlement_attempt_close_error, 'store offline')
+    assert.equal(m.open.size, 1)
+  })
+
+  it('settle and the stored record carry the payload verify saw, even if the caller changes it during the store write', async () => {
+    let releaseWrite: () => void = () => {}
+    const stored: X402SettlementAttempt[] = []
+    const slow: X402AttemptStore = {
+      recordAttempt(attempt) {
+        stored.push(JSON.parse(JSON.stringify(attempt)) as X402SettlementAttempt)
+        return new Promise<void>((r) => { releaseWrite = r })
+      },
+      async closeAttempt() {},
+      async listOpenAttempts() { return stored },
+    }
+    const seen: Record<string, string> = {}
+    const rail = await readyRail(slow, {
+      facilitatorVerify: async (req) => {
+        seen.verify = req.paymentPayload.payload.authorization.nonce
+        return { isValid: true, payer: PAYER }
+      },
+      facilitatorSettle: async (req) => {
+        seen.settle = req.paymentPayload.payload.authorization.nonce
+        throw new Error('timeout')
+      },
+    })
+    const invoice = await rail.createInvoice({ amount_base_units: '1000000' })
+    const original = '0x' + 'a'.repeat(64)
+    const callerPayload = _payload({
+      payload: { signature: '0x' + '2'.repeat(130), authorization: _authorization({ nonce: original }) },
+    })
+    const pending = rail.submitPayment(invoice.invoice_id, callerPayload)
+    // Wait until the store write is pending, then change the caller's object.
+    for (let i = 0; stored.length === 0; i++) {
+      assert.ok(i < 1000, 'the store write never started')
+      await new Promise((r) => setImmediate(r))
+    }
+    callerPayload.payload.authorization.nonce = '0x' + 'b'.repeat(64)
+    callerPayload.payload.authorization.value = '999999999'
+    releaseWrite()
+    const out = await pending
+    assert.equal(out.settlement, 'unknown')
+    assert.equal(seen.verify, original)
+    assert.equal(seen.settle, original)
+    assert.equal(stored[0]!.paymentPayload.payload.authorization.nonce, original)
+
+    // After a restart the resolver is asked about the authorization that was sent.
+    let askedNonce = ''
+    let askedValue = ''
+    const second = storeRail(slow, {
+      settlementResolver: async (q) => {
+        askedNonce = q.paymentPayload.payload.authorization.nonce
+        askedValue = q.paymentPayload.payload.authorization.value
+        return undefined
+      },
+    })
+    await second.recoverOpenAttempts()
+    await second.checkStatus(invoice.invoice_id)
+    assert.equal(askedNonce, original)
+    assert.equal(askedValue, '1000000')
+  })
+
+  it('a facilitator that changes the request it was given does not change what settle sends', async () => {
+    const m = memoryStore()
+    let settleNonce = ''
+    let settlePayTo = ''
+    const rail = await readyRail(m.store, {
+      facilitatorVerify: async (req) => {
+        req.paymentPayload.payload.authorization.nonce = '0x' + 'c'.repeat(64)
+        req.paymentRequirements.payTo = '0x' + 'd'.repeat(40)
+        return { isValid: true, payer: PAYER }
+      },
+      facilitatorSettle: async (req) => {
+        settleNonce = req.paymentPayload.payload.authorization.nonce
+        settlePayTo = req.paymentRequirements.payTo
+        return { success: true, payer: PAYER, transaction: TX_HASH, network: 'base' }
+      },
+    })
+    const invoice = await rail.createInvoice({ amount_base_units: '1000000' })
+    const original = '0x' + 'a'.repeat(64)
+    await rail.submitPayment(
+      invoice.invoice_id,
+      _payload({ payload: { signature: '0x' + '2'.repeat(130), authorization: _authorization({ nonce: original }) } }),
+    )
+    assert.equal(settleNonce, original)
+    assert.equal(settlePayTo, PAY_TO)
+    assert.equal(rail.getRequirements(invoice.invoice_id)?.payTo, PAY_TO)
+  })
+
+  it('refuses a stored record that is not a settlement attempt', async () => {
+    const bad: X402AttemptStore = {
+      async recordAttempt() {},
+      async closeAttempt() {},
+      async listOpenAttempts() {
+        return [{ invoiceId: 'x' } as unknown as X402SettlementAttempt]
+      },
+    }
+    const rail = storeRail(bad)
+    await assert.rejects(rail.recoverOpenAttempts(), /not a settlement attempt/)
+  })
+
+  it('with a store, submitPayment is refused until recoverOpenAttempts has completed', async () => {
+    const m = memoryStore()
+    let settleCalls = 0
+    const rail = storeRail(m.store, {
+      facilitatorSettle: async () => {
+        settleCalls++
+        return { success: true, payer: PAYER, transaction: TX_HASH, network: 'base' }
+      },
+    })
+    const invoice = await rail.createInvoice({ amount_base_units: '1000000' })
+    await assert.rejects(
+      rail.submitPayment(invoice.invoice_id, _payload()),
+      /recoverOpenAttempts\(\) has not completed/,
+    )
+    assert.equal(settleCalls, 0)
+    assert.equal((await rail.checkStatus(invoice.invoice_id)).status, 'pending')
+    await rail.recoverOpenAttempts()
+    assert.equal((await rail.submitPayment(invoice.invoice_id, _payload())).settlement, 'settled')
+  })
+
+  it('a recovery that fails keeps submitPayment refused', async () => {
+    let listFails = true
+    const m = memoryStore()
+    const flaky: X402AttemptStore = {
+      recordAttempt: (a) => m.store.recordAttempt(a),
+      closeAttempt: (id, o) => m.store.closeAttempt(id, o),
+      async listOpenAttempts() {
+        if (listFails) throw new Error('store unreachable')
+        return m.store.listOpenAttempts()
+      },
+    }
+    const rail = storeRail(flaky)
+    const invoice = await rail.createInvoice({ amount_base_units: '1000000' })
+    await assert.rejects(rail.recoverOpenAttempts(), /store unreachable/)
+    await assert.rejects(
+      rail.submitPayment(invoice.invoice_id, _payload()),
+      /recoverOpenAttempts\(\) has not completed/,
+    )
+    listFails = false
+    await rail.recoverOpenAttempts()
+    assert.equal((await rail.submitPayment(invoice.invoice_id, _payload())).settlement, 'settled')
+  })
+
+  it('a write that is stored and then rejects: the retry replaces the record and recovery returns what was sent', async () => {
+    const m = memoryStore()
+    let loseAck = true
+    const lossy: X402AttemptStore = {
+      async recordAttempt(a) {
+        await m.store.recordAttempt(a)
+        if (loseAck) throw new Error('acknowledgement lost')
+      },
+      closeAttempt: (id, o) => m.store.closeAttempt(id, o),
+      listOpenAttempts: () => m.store.listOpenAttempts(),
+    }
+    let settleNonce = ''
+    const rail = await readyRail(lossy, {
+      facilitatorSettle: async (req) => {
+        settleNonce = req.paymentPayload.payload.authorization.nonce
+        throw new Error('timeout')
+      },
+    })
+    const invoice = await rail.createInvoice({ amount_base_units: '1000000' })
+    const nonceA = '0x' + 'a'.repeat(64)
+    const nonceB = '0x' + 'b'.repeat(64)
+    const withNonce = (nonce: string) =>
+      _payload({ payload: { signature: '0x' + '2'.repeat(130), authorization: _authorization({ nonce }) } })
+
+    await assert.rejects(rail.submitPayment(invoice.invoice_id, withNonce(nonceA)), /could not be recorded/)
+    assert.equal(settleNonce, '', 'settle was not called for the first write')
+    assert.equal(m.open.size, 1, 'the first record was stored')
+
+    loseAck = false
+    const out = await rail.submitPayment(invoice.invoice_id, withNonce(nonceB))
+    assert.equal(out.settlement, 'unknown')
+    assert.equal(settleNonce, nonceB)
+    assert.equal(m.open.size, 1, 'one open record per invoice')
+
+    let askedNonce = ''
+    const second = storeRail(lossy, {
+      settlementResolver: async (q) => {
+        askedNonce = q.paymentPayload.payload.authorization.nonce
+        return undefined
+      },
+    })
+    assert.deepEqual(await second.recoverOpenAttempts(), [invoice.invoice_id])
+    await second.checkStatus(invoice.invoice_id)
+    assert.equal(askedNonce, nonceB)
+  })
+
+  it('a stored record whose settle was never sent is recovered as unknown and blocks a new submit', async () => {
+    const m = memoryStore()
+    const lossy: X402AttemptStore = {
+      async recordAttempt(a) {
+        await m.store.recordAttempt(a)
+        throw new Error('acknowledgement lost')
+      },
+      closeAttempt: (id, o) => m.store.closeAttempt(id, o),
+      listOpenAttempts: () => m.store.listOpenAttempts(),
+    }
+    const first = await readyRail(lossy)
+    const invoice = await first.createInvoice({ amount_base_units: '1000000' })
+    await assert.rejects(first.submitPayment(invoice.invoice_id, _payload()), /could not be recorded/)
+
+    const second = storeRail(m.store)
+    await second.recoverOpenAttempts()
+    assert.equal((await second.checkStatus(invoice.invoice_id)).status, 'settlement_unknown')
+    await assert.rejects(second.submitPayment(invoice.invoice_id, _payload()), /not pending/)
+    second.resolveSettlement(invoice.invoice_id, { settled: false, reason: 'never_sent' })
+    assert.equal(m.open.size, 0)
+  })
+
+  it('recovery refuses inconsistent records, loads nothing, and keeps submitPayment refused', async () => {
+    const m = memoryStore()
+    const src = await readyRail(m.store, { facilitatorSettle: async () => { throw new Error('timeout') } })
+    const invoice = await src.createInvoice({ amount_base_units: '1000000' })
+    const other = await src.createInvoice({ amount_base_units: '1000000' })
+    await src.submitPayment(invoice.invoice_id, _payload())
+    const good = (await m.store.listOpenAttempts())[0]!
+    const clone = (): X402SettlementAttempt => JSON.parse(JSON.stringify(good)) as X402SettlementAttempt
+
+    const cases: Array<[string, X402SettlementAttempt[], RegExp]> = []
+    const wrongId = clone(); wrongId.invoiceId = other.invoice_id
+    cases.push(['invoice id mismatch', [wrongId], /invoice\.invoice_id does not match invoiceId/])
+    const noNonce = clone()
+    delete (noNonce.paymentPayload.payload.authorization as Partial<EIP3009Authorization>).nonce
+    cases.push(['missing nonce', [noNonce], /authorization\.nonce missing/])
+    const badTime = clone(); badTime.startedAt = 'yesterday'
+    cases.push(['bad timestamp', [badTime], /startedAt is not a timestamp/])
+    const noPayTo = clone()
+    delete (noPayTo.paymentRequirements as Partial<typeof noPayTo.paymentRequirements>).payTo
+    cases.push(['missing payTo', [noPayTo], /paymentRequirements\.payTo missing/])
+    const conflicting = clone()
+    conflicting.paymentPayload.payload.authorization.nonce = '0x' + 'f'.repeat(64)
+    cases.push(['conflicting duplicates', [clone(), conflicting], /two different open records/])
+    // A bad record after a good one: the good one is not loaded either.
+    cases.push(['good then bad', [clone(), badTime], /startedAt is not a timestamp/])
+
+    for (const [name, records, pattern] of cases) {
+      const store: X402AttemptStore = {
+        async recordAttempt() {},
+        async closeAttempt() {},
+        async listOpenAttempts() { return records },
+      }
+      const rail = storeRail(store)
+      await assert.rejects(rail.recoverOpenAttempts(), pattern, name)
+      await assert.rejects(rail.checkStatus(invoice.invoice_id), /not found/, `${name}: nothing loaded`)
+      const fresh = await rail.createInvoice({ amount_base_units: '1000000' })
+      await assert.rejects(
+        rail.submitPayment(fresh.invoice_id, _payload()),
+        /recoverOpenAttempts\(\) has not completed/,
+        `${name}: submit stays refused`,
+      )
+    }
+
+    // The same record twice is one attempt.
+    const dup: X402AttemptStore = {
+      async recordAttempt() {},
+      async closeAttempt() {},
+      async listOpenAttempts() { return [clone(), clone()] },
+    }
+    assert.deepEqual(await storeRail(dup).recoverOpenAttempts(), [invoice.invoice_id])
+  })
+
+  it('a recovery that fails on a later record leaves the earlier one unloaded', async () => {
+    const m = memoryStore()
+    const src = await readyRail(m.store, { facilitatorSettle: async () => { throw new Error('timeout') } })
+    const one = await src.createInvoice({ amount_base_units: '1000000' })
+    const two = await src.createInvoice({ amount_base_units: '1000000' })
+    await src.submitPayment(one.invoice_id, _payload())
+    await src.submitPayment(two.invoice_id, _payload())
+    const records = await m.store.listOpenAttempts()
+    assert.equal(records.length, 2)
+    // The second record passes the shape check and cannot be copied.
+    const second = records[1]!
+    second.invoice.metadata = { ...second.invoice.metadata, hook: () => {} } as typeof second.invoice.metadata
+    let poisoned = true
+    const store: X402AttemptStore = {
+      async recordAttempt() {},
+      async closeAttempt() {},
+      async listOpenAttempts() { return poisoned ? records : m.store.listOpenAttempts() },
+    }
+    const rail = storeRail(store)
+    await assert.rejects(rail.recoverOpenAttempts())
+    await assert.rejects(rail.checkStatus(records[0]!.invoiceId), /not found/)
+    await assert.rejects(rail.checkStatus(records[1]!.invoiceId), /not found/)
+    const fresh = await rail.createInvoice({ amount_base_units: '1000000' })
+    await assert.rejects(
+      rail.submitPayment(fresh.invoice_id, _payload()),
+      /recoverOpenAttempts\(\) has not completed/,
+    )
+    // Once the store returns copyable records, recovery loads both.
+    poisoned = false
+    assert.deepEqual(
+      (await rail.recoverOpenAttempts()).sort(),
+      [one.invoice_id, two.invoice_id].sort(),
+    )
+  })
+
+  it('changing the object getRequirements returned does not change what is settled or reconciled', async () => {
+    let releaseWrite: () => void = () => {}
+    let writing = false
+    const m = memoryStore()
+    const slow: X402AttemptStore = {
+      async recordAttempt(a) {
+        await m.store.recordAttempt(a)
+        writing = true
+        await new Promise<void>((r) => { releaseWrite = r })
+      },
+      closeAttempt: (id, o) => m.store.closeAttempt(id, o),
+      listOpenAttempts: () => m.store.listOpenAttempts(),
+    }
+    let settlePayTo = ''
+    const asked: string[] = []
+    const rail = await readyRail(slow, {
+      facilitatorSettle: async (req) => {
+        settlePayTo = req.paymentRequirements.payTo
+        throw new Error('timeout')
+      },
+      settlementResolver: async (q) => {
+        asked.push(`${q.paymentRequirements.payTo}|${q.paymentPayload.payload.authorization.nonce}`)
+        // A resolver that changes what it was given.
+        q.paymentRequirements.payTo = '0x' + 'e'.repeat(40)
+        q.paymentPayload.payload.authorization.nonce = '0x' + 'e'.repeat(64)
+        return undefined
+      },
+    })
+    const invoice = await rail.createInvoice({ amount_base_units: '1000000' })
+    const attacker = '0x' + 'd'.repeat(40)
+
+    // Before submit.
+    rail.getRequirements(invoice.invoice_id)!.payTo = attacker
+    const pending = rail.submitPayment(invoice.invoice_id, _payload())
+    for (let i = 0; !writing; i++) {
+      assert.ok(i < 1000, 'the store write never started')
+      await new Promise((r) => setImmediate(r))
+    }
+    // While the store write is pending.
+    rail.getRequirements(invoice.invoice_id)!.payTo = attacker
+    releaseWrite()
+    await pending
+
+    assert.equal(settlePayTo, PAY_TO)
+    await rail.checkStatus(invoice.invoice_id)
+    await rail.checkStatus(invoice.invoice_id)
+    const expected = `${PAY_TO}|${_authorization().nonce}`
+    assert.deepEqual(asked, [expected, expected])
+    assert.equal(rail.getRequirements(invoice.invoice_id)?.payTo, PAY_TO)
+  })
+
+  it('without a store, recoverOpenAttempts returns nothing and submitPayment is unchanged', async () => {
+    const rail = _rail()
+    assert.deepEqual(await rail.recoverOpenAttempts(), [])
+    const invoice = await rail.createInvoice({ amount_base_units: '1000000' })
+    const out = await rail.submitPayment(invoice.invoice_id, _payload())
+    assert.equal(out.settlement, 'settled')
   })
 })
