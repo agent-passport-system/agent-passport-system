@@ -1,0 +1,66 @@
+{
+  "schema": "aps-j01-fixture-manifest/0.1-draft",
+  "fixture_status": "FINAL candidate. Validity window as supplied on the command line.",
+  "test_fixture_notice": "OFFLINE TEST FIXTURE. Keys are test keys derived from the stated seed. Anyone with the seed can sign as these test identities. No live payment system.",
+  "contract_revision": "review-2026-10-23",
+  "case": "J01",
+  "run_label": "admission-2026-12-01",
+  "sdk": {
+    "package": "agent-passport-system",
+    "tag": "v8.0.1",
+    "commit": "56e7b293c6cce232eff0b2891ddf7af85bfe01e3"
+  },
+  "producer_command": "node_modules/.bin/tsx examples/interop/refund-j01/producer.ts --out <out-dir> --run-label admission-2026-12-01 --fixture-status final --issued-at 2026-11-26T17:03:00.000Z --valid-until 2026-12-03T00:00:00.000Z --key-valid-until 2026-12-10T00:00:00.000Z --seed j01-193-admission-20261201-PUBLIC-TEST-ONLY --decision-id mdec_J01_20261201",
+  "test_key_derivation": {
+    "method": "sha256(\"APS-J01-193-TEST-KEY-V1\" || 0x00 || seed || 0x00 || role), Ed25519 private seed",
+    "seed": "j01-193-admission-20261201-PUBLIC-TEST-ONLY",
+    "boundary_key_id": "j01-test-boundary-k1",
+    "worker_key_id": "j01-test-worker-k1"
+  },
+  "approval_ref": "f3a190d1404a47cb5ddc11c563d7427e0a24376b240ebb76215bcd422011ae8f",
+  "intent_receipt_id": "d9f99304def983610a8d1c8ee33af7c4e9622a51d02fc248cdfb4a043e28f414",
+  "merchant_decision_id": "mdec_J01_20261201",
+  "merchant_decision_id_path": "policy_input.merchant_decision.decision_id",
+  "validity": {
+    "issued_at": "2026-11-26T17:03:00.000Z",
+    "valid_until": "2026-12-03T00:00:00.000Z",
+    "intent_issued_at": "2026-11-26T17:03:00.000Z"
+  },
+  "native_refs_informational": {
+    "action_ref": "a455a8507c0837aee8903cc0ccdacfd406616579cd751693c05311cd794a4080",
+    "payload_ref": "f83093ac7e7e83a2e6d4612dbbb909e9220c596a66db0d01fda83b574ec3daf7",
+    "decision_ref": "da7dae085ab93c4bf1556de69e024b955506290b1785e889644eb7ff148e6215"
+  },
+  "files": [
+    {
+      "path": "inputs/aps-intent.json",
+      "sha256": "sha256:3998930b05a5ea68f27aa70be74fe8c6d99f9e570b677de3b570a52dd25e2cc1",
+      "bytes": 766
+    },
+    {
+      "path": "inputs/aps-approval.json",
+      "sha256": "sha256:6ab894f007d77774c6c2ca28222aa2f08b389bab3029e40f21dacbd10e2a0b06",
+      "bytes": 1098
+    },
+    {
+      "path": "inputs/aps-action.json",
+      "sha256": "sha256:c29d98e7ee6d9245e25b905cdcabbf320a7b06a94f734557b3a942ab159b2944",
+      "bytes": 364
+    },
+    {
+      "path": "inputs/aps-payload.json",
+      "sha256": "sha256:4c2bc5b19b97bb0afd168b0a0f53524c9fd0a92e6d95a9c4607a9afe3e48c016",
+      "bytes": 59
+    },
+    {
+      "path": "inputs/decision-evidence.json",
+      "sha256": "sha256:0543a32b9f0845693db639b01bd6d79ce2118d433b61ea73b437ec126a074a43",
+      "bytes": 810
+    },
+    {
+      "path": "trust/aps-consumption.json",
+      "sha256": "sha256:fcde83fa24a84651319f2f51838eaceecfe6a19bcfe0f719bbc1f90c4ee19bb5",
+      "bytes": 653
+    }
+  ]
+}

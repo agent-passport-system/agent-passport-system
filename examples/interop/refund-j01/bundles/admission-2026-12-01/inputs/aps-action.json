@@ -1,0 +1,1 @@
+{"action_type":"refund","agent_id":"did:example:refund-worker","issued_at":"2026-11-26T17:03:00.000Z","nonce":"d00508084ad88576bbf8caa2968e5857","payload_ref":"f83093ac7e7e83a2e6d4612dbbb909e9220c596a66db0d01fda83b574ec3daf7","profile":"aps-action-ref-v2","scope_required":["payments:refund"],"target":"https://payments.operator.example/v1/payments/pay_A/refunds"}
