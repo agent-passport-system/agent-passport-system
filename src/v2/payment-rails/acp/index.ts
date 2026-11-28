@@ -61,6 +61,7 @@ function _acpSignerFor(
   return publicKeyFromPrivate(privateKeyHex)
 }
 import { verifyOwnerConfirmation } from '../../human-escalation.js'
+import { parseRfc3339 } from '../../../core/rfc3339.js'
 import type { OwnerConfirmation, V2Delegation } from '../../types.js'
 import { csvToList } from '../csv.js'
 import { resolveSpendLimitCents } from '../scope-resolution.js'
@@ -325,13 +326,15 @@ export function preAuthorizeAcpCheckout(
     return { allow: false, reason: 'no_commerce_scope', detail: 'delegation lacks commerce scope' }
   }
 
-  // 2. Delegation must not be expired.
+  // 2. Delegation must not be expired. valid_until is mandatory in a V2 policy
+  // context, and a bound that cannot be read denies rather than lifting the limit.
   const validUntil = delegation.policy_context?.valid_until
-  if (validUntil) {
-    const expiresAt = Date.parse(validUntil)
-    if (Number.isFinite(expiresAt) && Date.now() > expiresAt) {
-      return { allow: false, reason: 'delegation_expired', detail: validUntil }
-    }
+  const delegationExpiry = parseRfc3339(validUntil)
+  if (!delegationExpiry.ok) {
+    return { allow: false, reason: 'delegation_expired', detail: `valid_until is not a valid RFC 3339 timestamp (${delegationExpiry.reason})` }
+  }
+  if (Date.now() > delegationExpiry.ms) {
+    return { allow: false, reason: 'delegation_expired', detail: validUntil as string }
   }
 
   // 2.5. HumanEscalationFlag — Audit B P9. If the delegation declares

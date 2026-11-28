@@ -37,6 +37,7 @@ import {
 } from '../../../core/did-uri.js'
 import type { RotatableDIDDocument } from '../../../types/passport.js'
 import { verifyOwnerConfirmation } from '../../human-escalation.js'
+import { parseRfc3339 } from '../../../core/rfc3339.js'
 
 export type MppResolveDidDocument = (
   agentId: string,
@@ -309,18 +310,23 @@ export function preAuthorizeMppPayment(
     }
   }
 
-  // 2. Delegation must not be expired.
+  // 2. Delegation must not be expired. valid_until is mandatory in a V2 policy
+  // context, and a bound that cannot be read denies rather than lifting the limit.
   const validUntil = delegation.policy_context?.valid_until
-  if (validUntil) {
-    const expiresAt = Date.parse(validUntil)
-    if (Number.isFinite(expiresAt) && nowMs > expiresAt) {
-      return { allow: false, reason: 'delegation_expired', detail: validUntil }
-    }
+  const delegationExpiry = parseRfc3339(validUntil)
+  if (!delegationExpiry.ok) {
+    return { allow: false, reason: 'delegation_expired', detail: `valid_until is not a valid RFC 3339 timestamp (${delegationExpiry.reason})` }
+  }
+  if (nowMs > delegationExpiry.ms) {
+    return { allow: false, reason: 'delegation_expired', detail: validUntil as string }
   }
 
-  // 3. Challenge must not be expired.
-  const challengeExpires = Date.parse(challenge.expires_at)
-  if (Number.isFinite(challengeExpires) && nowMs > challengeExpires) {
+  // 3. Challenge must not be expired, and an unreadable expiry denies.
+  const challengeExpiry = parseRfc3339(challenge.expires_at)
+  if (!challengeExpiry.ok) {
+    return { allow: false, reason: 'challenge_expired', detail: `expires_at is not a valid RFC 3339 timestamp (${challengeExpiry.reason})` }
+  }
+  if (nowMs > challengeExpiry.ms) {
     return { allow: false, reason: 'challenge_expired', detail: challenge.expires_at }
   }
 
