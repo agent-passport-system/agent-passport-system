@@ -28,8 +28,11 @@ const VALID_FROM = '2026-11-27T11:00:00.000Z'
 const EXPIRED_FROM = '2026-06-01T00:00:00.000Z'
 const EXPIRED_UNTIL = '2026-06-30T23:59:59.000Z'
 const FUTURE_UNTIL = '2026-12-27T00:00:00.000Z'
-// Unreadable expiry values. The month-end :60 value is also in the past.
-const UNREADABLE = ['not-a-date', '', '2026-06-30T23:59:60.000Z', '2026-02-30T00:00:00.000Z', '31/12/2026']
+// Values that are not a valid RFC 3339 instant. 2026-06-30T23:59:60 is a second-60
+// fixture outside the APS profile, not a historical leap second. 2027-02-30 is an
+// impossible date in the future, so rejecting it cannot be explained by expiry:
+// Date.parse rolls it forward to 2027-03-02.
+const UNREADABLE = ['not-a-date', '', '2026-06-30T23:59:60.000Z', '2026-02-30T00:00:00.000Z', '2027-02-30T00:00:00.000Z', '31/12/2026']
 
 const keys = generateKeyPair()
 
@@ -65,8 +68,15 @@ test('delegation validator: controls and unreadable valid_until', () => {
   assert.equal(validateV2Delegation(signed(['payment'], VALID_FROM, FUTURE_UNTIL), NOW).valid, true)
   assert.equal(validateV2Delegation(signed(['payment'], EXPIRED_FROM, EXPIRED_UNTIL), NOW).valid, false)
   for (const bad of UNREADABLE) {
-    assert.equal(validateV2Delegation(signed(['payment'], VALID_FROM, bad), NOW).valid, false, bad)
+    assert.deepEqual(validateV2Delegation(signed(['payment'], VALID_FROM, bad), NOW), { valid: false, reason: 'Invalid policy window' }, `valid_until=${bad}`)
+    assert.deepEqual(validateV2Delegation(signed(['payment'], bad, FUTURE_UNTIL), NOW), { valid: false, reason: 'Invalid policy window' }, `valid_from=${bad}`)
   }
+  // A window that ends before it starts is invalid in itself.
+  assert.deepEqual(validateV2Delegation(signed(['payment'], FUTURE_UNTIL, '2026-12-01T00:00:00.000Z'), NOW), { valid: false, reason: 'Invalid policy window' })
+  // Not yet active, and the inclusive expiry boundary.
+  assert.equal(validateV2Delegation(signed(['payment'], '2026-11-28T00:00:00.000Z', FUTURE_UNTIL), NOW).valid, false)
+  assert.equal(validateV2Delegation(signed(['payment'], VALID_FROM, NOW.toISOString()), NOW).valid, true)
+  assert.equal(validateV2Delegation(signed(['payment'], VALID_FROM, '2026-11-27T11:59:59.999Z'), NOW).valid, false)
 })
 
 test('MPP: delegation valid_until', () => {
@@ -78,6 +88,22 @@ test('MPP: delegation valid_until', () => {
     assert.equal(r.allow, false, `valid_until=${JSON.stringify(bad)}`)
     assert.equal(r.allow === false && r.reason, 'delegation_expired')
   }
+})
+
+test('MPP: delegation valid_from, absent valid_from, and the expiry boundary', () => {
+  const fresh = challenge('2026-11-27T12:05:00.000Z')
+  assert.equal(preAuthorizeMppPayment(fresh, signed(['payment'], '2026-11-28T00:00:00.000Z', FUTURE_UNTIL), { now: NOW }).allow, false)
+  for (const bad of UNREADABLE) {
+    assert.equal(preAuthorizeMppPayment(fresh, signed(['payment'], bad, FUTURE_UNTIL), { now: NOW }).allow, false, `valid_from=${JSON.stringify(bad)}`)
+  }
+  const noFrom = signed(['payment'], VALID_FROM, FUTURE_UNTIL) as V2Delegation & { policy_context: Record<string, unknown> }
+  delete noFrom.policy_context.valid_from
+  assert.deepEqual(preAuthorizeMppPayment(fresh, noFrom, { now: NOW }), { allow: true })
+  assert.deepEqual(preAuthorizeMppPayment(fresh, signed(['payment'], VALID_FROM, NOW.toISOString()), { now: NOW }), { allow: true })
+  assert.equal(preAuthorizeMppPayment(fresh, signed(['payment'], VALID_FROM, '2026-11-27T11:59:59.999Z'), { now: NOW }).allow, false)
+  const noUntil = signed(['payment'], VALID_FROM, FUTURE_UNTIL) as V2Delegation & { policy_context: Record<string, unknown> }
+  delete noUntil.policy_context.valid_until
+  assert.equal(preAuthorizeMppPayment(fresh, noUntil, { now: NOW }).allow, false, 'valid_until is required')
 })
 
 test('MPP: challenge expires_at', () => {
@@ -96,7 +122,10 @@ test('ACP: delegation valid_until', () => {
   for (const bad of UNREADABLE) {
     const r = preAuthorizeAcpCheckout(acpRequest, signed(['commerce'], FAR_PAST, bad), 'usd')
     assert.equal(r.allow, false, `valid_until=${JSON.stringify(bad)}`)
+    assert.equal(preAuthorizeAcpCheckout(acpRequest, signed(['commerce'], bad, FAR_FUTURE), 'usd').allow, false, `valid_from=${JSON.stringify(bad)}`)
   }
+  // Not yet active.
+  assert.equal(preAuthorizeAcpCheckout(acpRequest, signed(['commerce'], '2098-01-01T00:00:00.000Z', FAR_FUTURE), 'usd').allow, false)
 })
 
 test('foundation gate through delegationToView: not_after and not_before', () => {
@@ -106,6 +135,12 @@ test('foundation gate through delegationToView: not_after and not_before', () =>
   })
   assert.equal(preAuthorize(input(signed(['commerce.purchase'], VALID_FROM, FUTURE_UNTIL)), rail).ok, true)
   assert.equal(preAuthorize(input(signed(['commerce.purchase'], EXPIRED_FROM, EXPIRED_UNTIL)), rail).ok, false)
+  // Optional bounds: a view with neither bound sets no time limit.
+  const open = delegationToView(signed(['commerce.purchase'], VALID_FROM, FUTURE_UNTIL), 'usd', 'w1')
+  delete open.not_before
+  delete open.not_after
+  assert.equal(preAuthorize({ delegation: open, required_scope: 'commerce.purchase', amount_base_units: '100', currency: 'usd', now: NOW }, rail).ok, true)
+  assert.equal(preAuthorize(input(signed(['commerce.purchase'], '2026-11-28T00:00:00.000Z', FUTURE_UNTIL)), rail).ok, false)
   for (const bad of UNREADABLE) {
     const until = preAuthorize(input(signed(['commerce.purchase'], VALID_FROM, bad)), rail)
     assert.equal(until.ok, false, `not_after=${JSON.stringify(bad)}`)
@@ -119,5 +154,11 @@ test('createPolicyContext refuses an unreadable valid_until', () => {
   assert.doesNotThrow(() => createPolicyContext({ ...base, valid_until: FUTURE_UNTIL, valid_from: VALID_FROM } as never))
   for (const bad of UNREADABLE.filter(v => v !== '')) {
     assert.throws(() => createPolicyContext({ ...base, valid_until: bad } as never), undefined, bad)
+    assert.throws(() => createPolicyContext({ ...base, valid_from: bad, valid_until: FUTURE_UNTIL } as never), undefined, bad)
   }
+  // The lifetime cap still applies: 180 days is allowed, 181 is refused.
+  const day = 86_400_000
+  const start = Date.parse(VALID_FROM)
+  assert.doesNotThrow(() => createPolicyContext({ ...base, valid_from: VALID_FROM, valid_until: new Date(start + 180 * day).toISOString() } as never))
+  assert.throws(() => createPolicyContext({ ...base, valid_from: VALID_FROM, valid_until: new Date(start + 181 * day).toISOString() } as never))
 })

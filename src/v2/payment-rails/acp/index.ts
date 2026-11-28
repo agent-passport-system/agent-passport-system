@@ -336,6 +336,15 @@ export function preAuthorizeAcpCheckout(
   if (Date.now() > delegationExpiry.ms) {
     return { allow: false, reason: 'delegation_expired', detail: validUntil as string }
   }
+  // A delegation is not usable before it takes effect. valid_from is optional here
+  // for compatibility, but a present value must be readable and already reached.
+  const validFrom = delegation.policy_context?.valid_from
+  if (validFrom !== undefined) {
+    const activation = parseRfc3339(validFrom)
+    if (!activation.ok || Date.now() < activation.ms) {
+      return { allow: false, reason: 'delegation_expired', detail: activation.ok ? `not valid before ${validFrom}` : `valid_from is not a valid RFC 3339 timestamp (${activation.reason})` }
+    }
+  }
 
   // 2.5. HumanEscalationFlag — Audit B P9. If the delegation declares
   // escalation_requirements on the 'commerce' action class with

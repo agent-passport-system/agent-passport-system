@@ -320,6 +320,15 @@ export function preAuthorizeMppPayment(
   if (nowMs > delegationExpiry.ms) {
     return { allow: false, reason: 'delegation_expired', detail: validUntil as string }
   }
+  // A delegation is not usable before it takes effect. valid_from is optional here
+  // for compatibility, but a present value must be readable and already reached.
+  const validFrom = delegation.policy_context?.valid_from
+  if (validFrom !== undefined) {
+    const activation = parseRfc3339(validFrom)
+    if (!activation.ok || nowMs < activation.ms) {
+      return { allow: false, reason: 'delegation_expired', detail: activation.ok ? `not valid before ${validFrom}` : `valid_from is not a valid RFC 3339 timestamp (${activation.reason})` }
+    }
+  }
 
   // 3. Challenge must not be expired, and an unreadable expiry denies.
   const challengeExpiry = parseRfc3339(challenge.expires_at)
