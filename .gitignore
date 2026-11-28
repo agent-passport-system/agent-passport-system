@@ -77,3 +77,4 @@ fixtures/oracle-safety-check/oracle-safety-check-v1/
 
 # Claude Code runtime residue (session locks, local settings)
 .claude/
+.test-results.files.txt
