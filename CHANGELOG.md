@@ -1,10 +1,16 @@
 # Changelog
 
-## Unreleased
+## 8.2.1 (2026-11-28)
 
-### Corrections
+### Timestamp conformance correction
 
-- Conformance correction, timestamps: delegation, revocation, receipt-core, action-reference and external action-ref timestamps reject a seconds value of 60, including `23:59:60` at month end, as draft-pidlisnyi-aps-04 section 4.3 requires. Earlier releases accepted a month-end leap second on these surfaces. Second 59 is still accepted. `parseRfc3339`, used by the payment rails since 8.2.0, already refused it.
+APS timestamp fields now consistently reject second 60, as the APS timestamp profile of draft-pidlisnyi-aps-04 sections 4.3 and 5.2 requires. This profile is narrower than RFC 3339, which permits second 60 for an actual leap second.
+
+Earlier versions accepted `23:59:60` on the last day of a month on the delegation, revocation, receipt-core, action-reference and external action-ref surfaces. Those inputs are now rejected. A record or reference that carries such a timestamp and was accepted by 8.2.0 or earlier is rejected by 8.2.1, and cannot be repaired without a new signature or a new digest. Platform clocks never produce second 60. `parseRfc3339`, used by the payment rails since 8.2.0, already rejected it.
+
+This correction aligns the implementation with the existing protocol requirements. Historical signed artifacts are unchanged. Regression tests cover the corrected behavior and keep valid month-end and year-boundary timestamps, such as `23:59:59.999`, accepted.
+
+The tests that recorded acceptance of these inputs remain unchanged at tag `v8.2.0`, where they describe what that release did.
 
 ## 8.2.0 (2026-11-28)
 
