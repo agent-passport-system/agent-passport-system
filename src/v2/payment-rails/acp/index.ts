@@ -61,6 +61,7 @@ function _acpSignerFor(
   return publicKeyFromPrivate(privateKeyHex)
 }
 import { verifyOwnerConfirmation } from '../../human-escalation.js'
+import { parseRfc3339 } from '../../../core/rfc3339.js'
 import type { OwnerConfirmation, V2Delegation } from '../../types.js'
 import { csvToList } from '../csv.js'
 import { resolveSpendLimitCents } from '../scope-resolution.js'
@@ -325,12 +326,23 @@ export function preAuthorizeAcpCheckout(
     return { allow: false, reason: 'no_commerce_scope', detail: 'delegation lacks commerce scope' }
   }
 
-  // 2. Delegation must not be expired.
+  // 2. Delegation must not be expired. valid_until is mandatory in a V2 policy
+  // context, and a bound that cannot be read denies rather than lifting the limit.
   const validUntil = delegation.policy_context?.valid_until
-  if (validUntil) {
-    const expiresAt = Date.parse(validUntil)
-    if (Number.isFinite(expiresAt) && Date.now() > expiresAt) {
-      return { allow: false, reason: 'delegation_expired', detail: validUntil }
+  const delegationExpiry = parseRfc3339(validUntil)
+  if (!delegationExpiry.ok) {
+    return { allow: false, reason: 'delegation_expired', detail: `valid_until is not a valid RFC 3339 timestamp (${delegationExpiry.reason})` }
+  }
+  if (Date.now() > delegationExpiry.ms) {
+    return { allow: false, reason: 'delegation_expired', detail: validUntil as string }
+  }
+  // A delegation is not usable before it takes effect. valid_from is optional here
+  // for compatibility, but a present value must be readable and already reached.
+  const validFrom = delegation.policy_context?.valid_from
+  if (validFrom !== undefined) {
+    const activation = parseRfc3339(validFrom)
+    if (!activation.ok || Date.now() < activation.ms) {
+      return { allow: false, reason: 'delegation_expired', detail: activation.ok ? `not valid before ${validFrom}` : `valid_from is not a valid RFC 3339 timestamp (${activation.reason})` }
     }
   }
 

@@ -1,11 +1,19 @@
 # Changelog
 
-## Unreleased
+## 8.2.0 (2026-11-28)
 
-### Behavior change
+### Security
 
-- `InMemoryAuthorityBudgetLedger.reserve`: under an `action_ref` whose reservation was cancelled, a request with a different unit, amount or set of bounded ancestors now returns `CONFLICT`, as draft-pidlisnyi-aps-04 section 4.4 requires. Earlier releases treated any request after cancellation as a fresh reservation. A request with the same footprint still reserves again, with every limit checked against the current counters. The ancestor set is compared without regard to order. A failed reserve leaves every counter and reservation unchanged.
-- `verifyAuthorityDelegationChain` applies the rule that a non-root record's `not_before` must not predate its `issued_at` in the child issuance time phase, as draft-pidlisnyi-aps-04 section 4.3 orders it, instead of in the schema phase. A chain with this fault and an earlier-phase fault now reports the earlier one: an unreachable signing key or a trust policy that cannot decide gives `indeterminate`, an untrusted root gives `ROOT_UNTRUSTED`, a recomputed `delegation_id` mismatch gives `ID_MISMATCH`. Earlier releases reported `invalid` `SCHEMA_INVALID` in all of these cases. A chain with only this fault still reports `invalid` `SCHEMA_INVALID` at the child's index. `validateAuthorityDelegationShape` keeps checking the rule by default and takes `{ childIssuanceTime: false }` to defer it.
+- Payment authorization no longer treats a time bound it cannot read as no bound (GHSA-249c-xcw2-fj8c). `preAuthorizeMppPayment`, `preAuthorizeAcpCheckout` and the foundation gate `preAuthorize` compared timestamps through `Date.parse`, so a value that did not parse skipped its expiry or window check. They now read bounds with `parseRfc3339` and deny when a required bound is missing or a present bound does not parse. MPP and ACP also refuse a delegation before its `valid_from`. `createPolicyContext` refuses an unreadable `valid_from` or `valid_until`. `validateV2Delegation` reports `Invalid policy window` for an unreadable bound or a window that ends before it starts, instead of reading an impossible date such as `2027-02-30` as a real one. Optional bounds that are absent still set no limit.
+
+### Corrections
+
+- Conformance correction, `InMemoryAuthorityBudgetLedger.reserve`: under an `action_ref` whose reservation was cancelled, a request with a different unit, amount or set of bounded ancestors now returns `CONFLICT`, as draft-pidlisnyi-aps-04 section 4.4 requires. Earlier releases treated any request after cancellation as a fresh reservation. A request with the same footprint still reserves again, with every limit checked against the current counters. The ancestor set is compared without regard to order. A failed reserve leaves every counter and reservation unchanged.
+- Verification behavior correction, `verifyAuthorityDelegationChain` applies the rule that a non-root record's `not_before` must not predate its `issued_at` in the child issuance time phase, as draft-pidlisnyi-aps-04 section 4.3 orders it, instead of in the schema phase. A chain with this fault and an earlier-phase fault now reports the earlier one: an unreachable signing key or a trust policy that cannot decide gives `indeterminate`, an untrusted root gives `ROOT_UNTRUSTED`, a recomputed `delegation_id` mismatch gives `ID_MISMATCH`. Earlier releases reported `invalid` `SCHEMA_INVALID` in all of these cases. A chain with only this fault still reports `invalid` `SCHEMA_INVALID` at the child's index. `validateAuthorityDelegationShape` keeps checking the rule by default and takes `{ childIssuanceTime: false }` to defer it.
+
+### Added
+
+- `formal/lean`: a Lean 4 model of the section 4.2 authority containment rules with machine-checked theorems, and a Lean-generated corpus that `tests/v2/authority-lean-correspondence.test.ts` runs against this SDK. Not part of the npm package.
 
 ## 8.1.1 (2026-11-16)
 

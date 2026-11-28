@@ -18,6 +18,7 @@
 import { sign, publicKeyFromPrivate, verify as edVerify } from '../../crypto/keys.js'
 import { canonicalize } from '../../core/canonical.js'
 import { createHash } from 'node:crypto'
+import { parseRfc3339 } from '../../core/rfc3339.js'
 import {
   parseDidUri,
   resolveVerificationMethod,
@@ -147,7 +148,8 @@ function _verifyOwnerConfirmationAgainstView(
   if (confirmation.confirmed_by !== view.delegator) {
     return { valid: false, reason: 'confirmed_by is not the delegator' }
   }
-  if (now.getTime() > Date.parse(confirmation.expires_at)) {
+  const confirmationExpiry = parseRfc3339(confirmation.expires_at)
+  if (!confirmationExpiry.ok || now.getTime() > confirmationExpiry.ms) {
     return { valid: false, reason: 'confirmation expired' }
   }
   if (confirmation.action_class !== action_class) {
@@ -249,9 +251,19 @@ export function preAuthorize(
   }
 
   const now = input.now ?? new Date()
+  // An optional bound that is absent sets no limit. One that is present but cannot be
+  // read denies rather than lifting the limit.
   if (delegation.not_before !== undefined) {
-    const nb = Date.parse(delegation.not_before)
-    if (!Number.isNaN(nb) && now.getTime() < nb) {
+    const parsed = parseRfc3339(delegation.not_before)
+    if (!parsed.ok) {
+      return {
+        ok: false,
+        denial_reason: 'time_window_violation',
+        reason_detail: `not_before is not a valid RFC 3339 timestamp (${parsed.reason})`,
+      }
+    }
+    const nb = parsed.ms
+    if (now.getTime() < nb) {
       return {
         ok: false,
         denial_reason: 'time_window_violation',
@@ -260,8 +272,16 @@ export function preAuthorize(
     }
   }
   if (delegation.not_after !== undefined) {
-    const na = Date.parse(delegation.not_after)
-    if (!Number.isNaN(na) && now.getTime() > na) {
+    const parsed = parseRfc3339(delegation.not_after)
+    if (!parsed.ok) {
+      return {
+        ok: false,
+        denial_reason: 'time_window_violation',
+        reason_detail: `not_after is not a valid RFC 3339 timestamp (${parsed.reason})`,
+      }
+    }
+    const na = parsed.ms
+    if (now.getTime() > na) {
       return {
         ok: false,
         denial_reason: 'time_window_violation',

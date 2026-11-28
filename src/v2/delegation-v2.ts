@@ -8,6 +8,7 @@
 
 import { v4 as uuidv4 } from 'uuid'
 import { signObject, verifyObject, isPolicyContextActive, isPolicyContextInGrace } from './bridge.js'
+import { parseRfc3339 } from '../core/rfc3339.js'
 import type {
   PolicyContext, V2Delegation, V2ScopeDefinition, V2DelegationStatus, AssuranceClass,
 } from './types.js'
@@ -219,6 +220,14 @@ export function revokeV2Delegation(id: string): V2Delegation {
 export function validateV2Delegation(d: V2Delegation, now?: Date): { valid: boolean; reason?: string } {
   if (d.status === 'revoked') return { valid: false, reason: 'Revoked' }
   if (d.status === 'superseded') return { valid: false, reason: 'Superseded' }
+  // A window that cannot be read, or that ends before it starts, is invalid in itself,
+  // whatever the clock says. Reporting it as Expired would depend on where an
+  // unreadable or rolled-over date happens to fall relative to now.
+  const from = parseRfc3339(d.policy_context?.valid_from)
+  const until = parseRfc3339(d.policy_context?.valid_until)
+  if (!from.ok || !until.ok || from.ms > until.ms) {
+    return { valid: false, reason: 'Invalid policy window' }
+  }
   if (!isPolicyContextActive(d.policy_context, now)) {
     if (isPolicyContextInGrace(d.policy_context, undefined, now)) {
       return { valid: false, reason: 'Grace period (read-only)' }

@@ -9,6 +9,7 @@ import crypto from 'node:crypto'
 import { v4 as uuidv4 } from 'uuid'
 import { sign, verify } from '../crypto/keys.js'
 import { canonicalize, canonicalizeForWrite } from '../core/canonical.js'
+import { parseRfc3339 } from '../core/rfc3339.js'
 
 import type { Delegation } from '../types/passport.js'
 import type {
@@ -80,8 +81,14 @@ export function createPolicyContext(params: {
     valid_until: params.valid_until,
   }
   if (!ctx.valid_until) throw new Error('PolicyContext: valid_until is MANDATORY')
-  const from = new Date(ctx.valid_from).getTime()
-  const until = new Date(ctx.valid_until).getTime()
+  // An unreadable bound would compare false against everything and bypass both the
+  // ordering check and the lifetime cap below, so it is refused here.
+  const parsedFrom = parseRfc3339(ctx.valid_from)
+  const parsedUntil = parseRfc3339(ctx.valid_until)
+  if (!parsedFrom.ok) throw new Error(`PolicyContext: valid_from is not a valid RFC 3339 timestamp (${parsedFrom.reason})`)
+  if (!parsedUntil.ok) throw new Error(`PolicyContext: valid_until is not a valid RFC 3339 timestamp (${parsedUntil.reason})`)
+  const from = parsedFrom.ms
+  const until = parsedUntil.ms
   if (until <= from) throw new Error('PolicyContext: valid_until must be after valid_from')
   if (until - from > DEFAULT_MAX_LIFETIME_MS) {
     throw new Error(`PolicyContext: lifetime exceeds maximum (${DEFAULT_MAX_LIFETIME_MS / 86400000} days)`)
@@ -91,14 +98,19 @@ export function createPolicyContext(params: {
 
 export function isPolicyContextActive(ctx: PolicyContext, now?: Date): boolean {
   const t = (now || new Date()).getTime()
-  return t >= new Date(ctx.valid_from).getTime() && t <= new Date(ctx.valid_until).getTime()
+  const from = parseRfc3339(ctx.valid_from)
+  const until = parseRfc3339(ctx.valid_until)
+  if (!from.ok || !until.ok) return false
+  return t >= from.ms && t <= until.ms
 }
 
 export function isPolicyContextInGrace(
   ctx: PolicyContext, gracePeriodMs: number = 72 * 60 * 60 * 1000, now?: Date
 ): boolean {
   const t = (now || new Date()).getTime()
-  const until = new Date(ctx.valid_until).getTime()
+  const parsed = parseRfc3339(ctx.valid_until)
+  if (!parsed.ok) return false
+  const until = parsed.ms
   return t > until && t <= until + gracePeriodMs
 }
 
