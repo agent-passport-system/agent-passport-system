@@ -1,8 +1,8 @@
 // Copyright (c) 2026 Tymofii Pidlisnyi
 // SPDX-License-Identifier: Apache-2.0
 //
-// Draft-03 reconciliation coverage for src/v2/authority-delegation: the RFC
-// 3339 exact-millisecond timestamp grammar (integer arithmetic, never Date),
+// Delegation reconciliation coverage, updated for draft-04 section 4.3:
+// exact UTC milliseconds with seconds 00 through 59 and real calendar days,
 // string-order timestamp comparison throughout the module, the reversibility
 // ceiling no longer being coerced with String(), and the "an unsupported
 // facet profile is unsupported" rule for the four profiled facets.
@@ -162,8 +162,8 @@ function childBodyWith(
   }
 }
 
-/** The root+child pair used by tests 3 and 5: a leap second sits inside both windows. */
-function buildLeapSecondChain(): [AuthorityDelegationV1, AuthorityDelegationV1] {
+/** A root and child spanning the last ordinary second of a year and the rollover. */
+function buildYearRolloverChain(): [AuthorityDelegationV1, AuthorityDelegationV1] {
   const root = issueAuthorityDelegation(
     rootBodyWith('2016-12-31T23:59:59.000Z', {
       not_before: '2016-12-31T23:59:59.000Z',
@@ -173,13 +173,13 @@ function buildLeapSecondChain(): [AuthorityDelegationV1, AuthorityDelegationV1] 
   )
   const child = issueSubAuthorityDelegation(
     root,
-    childBodyWith(root, '2016-12-31T23:59:60.000Z', {
-      not_before: '2016-12-31T23:59:60.000Z',
+    childBodyWith(root, '2016-12-31T23:59:59.000Z', {
+      not_before: '2016-12-31T23:59:59.000Z',
       not_after: '2017-01-01T00:00:00.500Z',
     }),
     CHILD_KEY,
     {
-      now: '2016-12-31T23:59:60.000Z',
+      now: '2016-12-31T23:59:59.000Z',
       resolveVerificationKey,
       resolveRevocation: () => 'active',
     },
@@ -189,21 +189,24 @@ function buildLeapSecondChain(): [AuthorityDelegationV1, AuthorityDelegationV1] 
 
 test('isCanonicalTimestamp: exact RFC 3339 UTC-millisecond grammar with real calendar days', () => {
   const valid = [
-    '2016-12-31T23:59:60.000Z',
+    '2016-12-31T23:59:59.000Z',
     '0000-02-29T00:00:00.000Z',
-    '2028-02-29T23:59:60.999Z',
+    '2028-02-29T23:59:59.999Z',
     '2026-07-18T22:00:00.000Z',
-    // RFC 3339 section 5.7 and Appendix D: second 60 at 23:59 on
-    // the last day of its month.
-    '2026-06-30T23:59:60.000Z',
-    '2027-02-28T23:59:60.000Z',
-    '0000-02-29T23:59:60.000Z',
+    '2026-06-30T23:59:59.000Z',
+    '2027-02-28T23:59:59.000Z',
+    '0000-02-29T23:59:59.000Z',
   ]
   for (const value of valid) {
     assert.equal(isCanonicalTimestamp(value), true, value)
   }
 
   const invalid: unknown[] = [
+    '2016-12-31T23:59:60.000Z',
+    '2028-02-29T23:59:60.999Z',
+    '2026-06-30T23:59:60.000Z',
+    '2027-02-28T23:59:60.000Z',
+    '0000-02-29T23:59:60.000Z',
     '2016-12-31T23:59:61.000Z',
     '2026-07-18T24:00:00.000Z',
     '2026-02-30T00:00:00.000Z',
@@ -214,9 +217,7 @@ test('isCanonicalTimestamp: exact RFC 3339 UTC-millisecond grammar with real cal
     ['2026-07-18T22:00:00.000Z'],
     0,
     null,
-    // RFC 3339 section 5.7 and Appendix D: second 60 is valid only
-    // at 23:59 on the last day of its month; 2026-04-08T12:00:60.000Z was
-    // formerly accepted here and now moves to this list.
+    // Draft-04 section 4.3 rejects second 60 at every calendar position.
     '2026-04-08T12:00:60.000Z',
     '2026-06-29T23:59:60.000Z',
     '2016-12-31T23:58:60.000Z',
@@ -229,33 +230,33 @@ test('isCanonicalTimestamp: exact RFC 3339 UTC-millisecond grammar with real cal
   }
 })
 
-test('compareCanonicalTimestamps: string order tracks time order through a leap second and a year rollover', () => {
+test('compareCanonicalTimestamps: string order tracks time order through a year rollover', () => {
   const chain = [
+    '2016-12-31T23:59:58.999Z',
+    '2016-12-31T23:59:59.000Z',
     '2016-12-31T23:59:59.999Z',
-    '2016-12-31T23:59:60.000Z',
-    '2016-12-31T23:59:60.999Z',
     '2017-01-01T00:00:00.000Z',
   ]
   for (let i = 0; i < chain.length - 1; i++) {
     assert.equal(compareCanonicalTimestamps(chain[i], chain[i + 1]), -1, `${chain[i]} should sort before ${chain[i + 1]}`)
     assert.equal(compareCanonicalTimestamps(chain[i + 1], chain[i]), 1, `${chain[i + 1]} should sort after ${chain[i]}`)
   }
-  assert.equal(compareCanonicalTimestamps('2016-12-31T23:59:60.000Z', '2016-12-31T23:59:60.000Z'), 0)
+  assert.equal(compareCanonicalTimestamps('2016-12-31T23:59:59.000Z', '2016-12-31T23:59:59.000Z'), 0)
 })
 
-test('a leap-second delegation chain verifies valid at a leap-second verification clock', () => {
-  const [root, child] = buildLeapSecondChain()
-  const checked = verifyAuthorityDelegationChain([root, child], activeOptions('2016-12-31T23:59:60.500Z', root.delegation_id))
+test('a year-rollover delegation chain verifies valid at second 59', () => {
+  const [root, child] = buildYearRolloverChain()
+  const checked = verifyAuthorityDelegationChain([root, child], activeOptions('2016-12-31T23:59:59.500Z', root.delegation_id))
   assert.equal(checked.state, 'valid')
   assert.equal(checked.valid, true)
   assert.deepEqual(checked.failures, [])
 })
 
-test('TIME_WIDENING is caught across a leap second, where Date.parse would give NaN >= NaN', () => {
+test('TIME_WIDENING is caught across a year rollover', () => {
   const root = issueAuthorityDelegation(
     rootBodyWith('2016-12-31T23:59:59.000Z', {
       not_before: '2016-12-31T23:59:59.000Z',
-      not_after: '2016-12-31T23:59:60.999Z',
+      not_after: '2016-12-31T23:59:59.999Z',
     }),
     ROOT_KEY,
   )
@@ -265,24 +266,49 @@ test('TIME_WIDENING is caught across a leap second, where Date.parse would give 
   // issueAuthorityDelegation itself now refuses any body whose parent_delegation_id is
   // not null.
   const child = signChildDirectly(
-    childBodyWith(root, '2016-12-31T23:59:60.000Z', {
-      not_before: '2016-12-31T23:59:60.000Z',
+    childBodyWith(root, '2016-12-31T23:59:59.000Z', {
+      not_before: '2016-12-31T23:59:59.000Z',
       not_after: '2017-01-01T00:00:00.000Z',
     }),
     CHILD_KEY,
   )
-  const checked = verifyAuthorityDelegationChain([root, child], activeOptions('2016-12-31T23:59:60.500Z', root.delegation_id))
+  const checked = verifyAuthorityDelegationChain([root, child], activeOptions('2016-12-31T23:59:59.500Z', root.delegation_id))
   assert.equal(checked.state, 'invalid')
   assert.equal(checked.failures[0]?.code, 'TIME_WIDENING')
   assert.equal(checked.failures[0]?.index, 1)
 })
 
 test('EXPIRED is reported at the half-open ceiling: now equal to not_after expires the record', () => {
-  const [root, child] = buildLeapSecondChain()
+  const [root, child] = buildYearRolloverChain()
   const checked = verifyAuthorityDelegationChain([root, child], activeOptions('2017-01-01T00:00:01.000Z', root.delegation_id))
   assert.equal(checked.state, 'invalid')
   assert.equal(checked.failures[0]?.code, 'EXPIRED')
   assert.equal(checked.failures[0]?.index, 0)
+})
+
+for (const field of ['issued_at', 'not_before', 'not_after'] as const) {
+  test(`draft-04 rejects month-end second 60 in delegation ${field}`, () => {
+    const body = rootBodyWith('2016-12-31T23:59:59.000Z', {
+      not_before: '2016-12-31T23:59:59.000Z',
+      not_after: '2017-01-01T00:00:01.000Z',
+    })
+    const control = issueAuthorityDelegation(body, ROOT_KEY)
+    assert.equal(verifyAuthorityDelegationChain([control], activeOptions('2016-12-31T23:59:59.500Z', control.delegation_id)).state, 'valid')
+    if (field === 'issued_at') body.issued_at = '2016-12-31T23:59:60.000Z'
+    else body.authority.time[field] = '2016-12-31T23:59:60.000Z'
+    const malformed = sign(body, ROOT_KEY)
+    assert.throws(() => issueAuthorityDelegation(body, ROOT_KEY))
+    const checked = verifyAuthorityDelegationChain([malformed], activeOptions('2016-12-31T23:59:59.500Z', malformed.delegation_id))
+    assert.equal(checked.state, 'invalid')
+    assert.equal(checked.failures[0]?.code, 'NONCANONICAL_VALUE')
+  })
+}
+
+test('draft-04 rejects second 60 in the delegation verification clock', () => {
+  const [root, child] = buildYearRolloverChain()
+  const checked = verifyAuthorityDelegationChain([root, child], activeOptions('2016-12-31T23:59:60.500Z', root.delegation_id))
+  assert.equal(checked.state, 'invalid')
+  assert.equal(checked.failures[0]?.code, 'NONCANONICAL_VALUE')
 })
 
 test('year 0000 is accepted end to end, including a leap day inside the window', () => {

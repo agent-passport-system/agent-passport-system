@@ -3,14 +3,15 @@
 
 // Envelope rules of draft-pidlisnyi-aps-03 section 5.1 that the validator did not enforce:
 // a member the draft types as a string is a string and is not coerced, delegation_ref
-// carries the "sha256:" form of a delegation_id, issued_at admits a conforming leap second
-// and no other second 60, and a receipt string carries no Unicode noncharacter.
+// carries the "sha256:" form of a delegation_id, issued_at rejects second 60 per
+// draft-04 section 4.3, and a receipt string carries no Unicode noncharacter.
 
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { publicKeyFromPrivate } from '../src/crypto/keys.js'
 import { createReceiptV1, isExactUtcMilliseconds, validateReceiptV1 } from '../src/v2/receipt-core/receipt.js'
-import type { ReceiptV1 } from '../src/v2/receipt-core/types.js'
+import { validateSupportingRecordV1 } from '../src/v2/receipt-core/supporting-record.js'
+import type { SupportingRecordV1, ReceiptV1 } from '../src/v2/receipt-core/types.js'
 
 const privateKey = '00'.repeat(32)
 const publicKey = publicKeyFromPrivate(privateKey)
@@ -68,12 +69,11 @@ test('envelope: delegation_ref carries the sha256 prefixed delegation_id form', 
   assert.doesNotThrow(() => validateReceiptV1(intent()))
 })
 
-test('envelope: second 60 is accepted only at 23:59 on the last day of a month', () => {
-  // RFC 3339 section 5.7 and Appendix D. The same rule is applied on the section 4.1 and
-  // section 3 surfaces; no leap-second table is consulted.
-  assert.equal(isExactUtcMilliseconds('2026-06-30T23:59:60.000Z'), true)
-  assert.equal(isExactUtcMilliseconds('2026-12-31T23:59:60.500Z'), true)
-  assert.equal(isExactUtcMilliseconds('2024-02-29T23:59:60.000Z'), true, 'leap-year February')
+test('envelope: draft-04 rejects second 60 even at month end and accepts second 59', () => {
+  // Draft-04 section 4.3 rejects second 60 without consulting a leap-second table.
+  assert.equal(isExactUtcMilliseconds('2026-06-30T23:59:60.000Z'), false)
+  assert.equal(isExactUtcMilliseconds('2026-12-31T23:59:60.500Z'), false)
+  assert.equal(isExactUtcMilliseconds('2024-02-29T23:59:60.000Z'), false, 'leap-year February')
   assert.equal(isExactUtcMilliseconds('2026-02-29T23:59:60.000Z'), false, 'February 29 outside a leap year')
   assert.equal(isExactUtcMilliseconds('2026-06-29T23:59:60.000Z'), false, 'not the last day of the month')
   assert.equal(isExactUtcMilliseconds('2026-06-30T22:59:60.000Z'), false, 'not 23:59')
@@ -88,6 +88,9 @@ test('envelope: second 60 is accepted only at 23:59 on the last day of a month',
   assert.equal(isExactUtcMilliseconds('2026-07-18T12:00:00.000+00:00'), false, 'offset rather than Z')
   const receipt = structuredClone(intent()) as unknown as Record<string, unknown>
   receipt.issued_at = '2026-06-30T23:59:60.000Z'
+  assert.throws(() => validateReceiptV1(receipt as unknown as ReceiptV1, false), /issued_at/)
+  receipt.issued_at = '2026-06-30T23:59:59.000Z'
+  assert.equal(isExactUtcMilliseconds(receipt.issued_at as string), true)
   assert.doesNotThrow(() => validateReceiptV1(receipt as unknown as ReceiptV1, false))
 })
 
@@ -106,4 +109,14 @@ test('envelope: the control receipt verifies, so the rejections above are not va
   assert.equal(validateReceiptV1(receipt), undefined)
   assert.equal(receipt.delegation_ref, `sha256:${hex('b')}`)
   assert.equal(typeof publicKey, 'string')
+})
+
+test('supporting-record timestamps reject month-end second 60 and accept second 59', () => {
+  const record: SupportingRecordV1 = {
+    profile: 'aps-supporting-record-v1', record_id: hex('a'), record_type: 'example',
+    issuer: 'did:example:agent', issuer_key_id: 'key-1',
+    issued_at: '2026-06-30T23:59:59.000Z', body: {}, sig_alg: 'Ed25519', sig: '0'.repeat(128),
+  }
+  assert.doesNotThrow(() => validateSupportingRecordV1(record))
+  assert.throws(() => validateSupportingRecordV1({ ...record, issued_at: '2026-06-30T23:59:60.000Z' }), /issued_at/)
 })

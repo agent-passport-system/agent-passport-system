@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Corrections
+
+- Conformance correction, timestamps: delegation, revocation, receipt-core, action-reference and external action-ref timestamps reject a seconds value of 60, including `23:59:60` at month end, as draft-pidlisnyi-aps-04 section 4.3 requires. Earlier releases accepted a month-end leap second on these surfaces. Second 59 is still accepted. `parseRfc3339`, used by the payment rails since 8.2.0, already refused it.
+
 ## 8.2.0 (2026-11-28)
 
 ### Security

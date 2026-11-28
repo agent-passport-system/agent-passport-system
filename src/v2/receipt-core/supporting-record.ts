@@ -11,7 +11,7 @@ export const SUPPORTING_RECORD_ID_TAG = 'APS-SUPPORTING-RECORD-ID-V1' as const
 export const SUPPORTING_RECORD_SIG_TAG = 'APS-SUPPORTING-RECORD-SIG-V1' as const
 const HEX64 = /^[0-9a-f]{64}$/
 const HEX128 = /^[0-9a-f]{128}$/
-const UTC_MS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
+const UTC_MS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:[0-5][0-9]\.\d{3}Z$/
 const sha256 = (value: string | Buffer): Buffer => createHash('sha256').update(value).digest()
 const sha256Hex = (value: string | Buffer): string => sha256(value).toString('hex')
 const isExactUtcMilliseconds = (value: string): boolean => {

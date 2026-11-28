@@ -15,7 +15,7 @@ export const RECEIPT_ID_TAG = 'APS-RECEIPT-ID-V1' as const
 export const RECEIPT_SIG_TAG = 'APS-RECEIPT-SIG-V1' as const
 const HEX64 = /^[0-9a-f]{64}$/
 const HEX128 = /^[0-9a-f]{128}$/
-const UTC_MS = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\.\d{3}Z$/
+const UTC_MS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:[0-5][0-9]\.\d{3}Z$/
 /** delegation_ref carries the "sha256:" prefix of a delegation_id, not a bare digest.
  *  draft-pidlisnyi-aps-03 section 5.1 line 982 says delegation_ref identifies the selected
  *  AuthorityDelegationV1 leaf, the envelope example at line 964 writes it as
@@ -23,7 +23,6 @@ const UTC_MS = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\.\d{3}Z$/
  *  delegation_id that exact form. Binding the value to a leaf needs a supplied chain and is
  *  the section 5.6 composition point; this check is the standalone structural form only. */
 const DELEGATION_REF = /^sha256:[0-9a-f]{64}$/
-const DAYS_IN_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
 const sha256Hex = (s: string): string => createHash('sha256').update(s, 'utf8').digest('hex')
 const compareUtf8 = (a: string, b: string): number => Buffer.compare(Buffer.from(a, 'utf8'), Buffer.from(b, 'utf8'))
 
@@ -35,38 +34,13 @@ function compareSignatures(a: Pick<ReceiptSignatureV1, 'signer' | 'key_id'>, b: 
   return compareUtf8(a.signer, b.signer) || compareUtf8(a.key_id, b.key_id)
 }
 
-function isLeapYear(year: number): boolean {
-  return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0
-}
-
 /**
- * Exact UTC milliseconds, YYYY-MM-DDTHH:MM:SS.sssZ (draft line 986, with lines 198-199).
- *
- * Second 60 is accepted only at 23:59 on the last day of its month in the proleptic
- * Gregorian calendar, and rejected everywhere else. RFC 3339 section 5.7 admits time-second
- * 60 only for a leap second and Appendix D writes it as "YYYY-MM-DDT23:59:60Z"; the hour,
- * minute and day settle it, so no leap-second table is consulted and none is needed. The
- * same rule is applied on the section 4.1 surface (src/v2/action-reference/v2.ts) and on the
- * section 3 surface, and it stays local to each of them rather than changing a shared
- * helper that other record families also use.
- *
- * The second-60 branch is integer arithmetic because Date cannot represent a leap second.
- * Every other timestamp keeps the previous Date round-trip check unchanged, so the set of
- * accepted values grows by the conforming second-60 instants and by nothing else.
+ * Exact UTC milliseconds, YYYY-MM-DDTHH:MM:SS.sssZ, with a real calendar day.
+ * draft-pidlisnyi-aps-04 section 4.3 requires seconds 00 through 59 everywhere,
+ * without consulting a leap-second table.
  */
 export function isExactUtcMilliseconds(value: string): boolean {
-  const match = UTC_MS.exec(value)
-  if (!match) return false
-  const [, y, mo, d, h, mi, s] = match
-  const year = Number(y)
-  const month = Number(mo)
-  const day = Number(d)
-  const second = Number(s)
-  if (second === 60) {
-    if (month < 1 || month > 12) return false
-    const maxDay = month === 2 && isLeapYear(year) ? 29 : DAYS_IN_MONTH[month - 1]
-    return day === maxDay && Number(h) === 23 && Number(mi) === 59
-  }
+  if (!UTC_MS.test(value)) return false
   const parsed = new Date(value)
   return !Number.isNaN(parsed.valueOf()) && parsed.toISOString() === value
 }
@@ -77,10 +51,7 @@ export function isExactUtcMilliseconds(value: string): boolean {
  *
  * The comparison is lexicographic on purpose. The accepted form is fixed width and
  * zero padded, YYYY-MM-DDTHH:MM:SS.sssZ, with the only letters at fixed positions, so
- * byte order is chronological order, and a leap second at :60 sorts after :59 in the
- * same minute, which is where it belongs. Date.parse cannot be used: it returns NaN
- * for a second-60 instant, so every comparison involving a conforming leap second
- * would silently answer false and reject a record the draft allows.
+ * byte order is chronological order.
  */
 export function isLaterUtcMillisecond(later: string, earlier: string): boolean {
   return later > earlier
