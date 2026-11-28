@@ -18,6 +18,7 @@ than `propext`, `Quot.sound` and `Classical.choice`.
 | `APSFormal/Scope.lean` | scope grants (`*`, exact, `prefix:*`) | coverage is reflexive, transitive and antisymmetric. List containment is reflexive and transitive, and antisymmetric on irredundant sorted lists. The fast checks in `scopeNarrows` and `grantsAreCanonical` equal their pairwise definitions |
 | `APSFormal/Spend.lean` | spend (`unbounded`, bounded unit and two limits) | partial order, unbounded is greatest, unit change is incomparable |
 | `APSFormal/Facets.lean` | depth, time, reputation, values, reversibility | each is a partial order. Depth containment is reflexive and kept apart from the strict delegation step, and an identical depth cannot be delegated |
+| `APSFormal/Authority.lean` | the seven-facet vector, one step, chains | containment is a partial order (antisymmetric on canonical vectors). A valid step implies containment, and no record is a valid step from itself. In a valid chain every record is contained in every ancestor, depth falls at least one per hop, and a chain has at most 256 records, a bound a 256-record chain reaches |
 
 Each file has a DISAGREEMENTS block that records where the TypeScript code or the
 draft text differs from the model. A disagreement is recorded, not resolved by

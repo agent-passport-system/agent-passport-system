@@ -56,7 +56,7 @@ test('grantsAreCanonical agrees with sorted plus APS.Scope.Irredundant', () => {
   assert.deepEqual(bad, [])
 })
 
-test('scopeNarrows agrees with APS.Scope.Within on canonical lists', () => {
+test('scopeNarrows agrees with APS.Scope.Within, canonical parents and any child', () => {
   const bad = corpus.scope_narrows.filter((c: { parent: string[], child: string[], narrows: boolean }) =>
     scopeNarrows(c.parent, c.child) !== c.narrows)
   assert.deepEqual(bad, [])

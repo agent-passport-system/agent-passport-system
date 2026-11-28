@@ -313,8 +313,34 @@ theorem fastIrredundant_iff (l : List Grant) (hwf : ∀ g ∈ l, g.WF) :
     intro q hq m _ hm hmem
     exact h _ hmem g hg ⟨q, hq, q.drop m, by simp⟩
 
+/-! ### Executable list checks used by the corpus generator -/
+
+def within? (child parent : List Grant) : Bool :=
+  child.all fun c => parent.any fun p => covers? p c
+
+theorem within?_iff (child parent : List Grant) : within? child parent = true ↔ Within child parent := by
+  simp [within?, Within, List.all_eq_true, List.any_eq_true, covers?_iff]
+
+def irredundant? (l : List Grant) : Bool :=
+  l.all fun a => l.all fun b => !(covers? a b) || a == b
+
+theorem irredundant?_iff (l : List Grant) : irredundant? l = true ↔ Irredundant l := by
+  simp only [irredundant?, Irredundant, List.all_eq_true, Bool.or_eq_true, Bool.not_eq_true',
+    beq_iff_eq]
+  constructor
+  · intro h a ha b hb hab
+    rcases h a ha b hb with h' | h'
+    · rw [(covers?_iff a b).2 hab] at h'; exact absurd h' (by decide)
+    · exact h'
+  · intro h a ha b hb
+    by_cases hc : covers? a b = true
+    · exact Or.inr (h a ha b hb ((covers?_iff a b).1 hc))
+    · exact Or.inl (by simpa using hc)
+
 end APS.Scope
 
+#print axioms APS.Scope.within?_iff
+#print axioms APS.Scope.irredundant?_iff
 #print axioms APS.Scope.fastIrredundant_iff
 #print axioms APS.Scope.covers_refl
 #print axioms APS.Scope.covers_trans
