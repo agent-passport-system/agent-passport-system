@@ -1,3 +1,20 @@
+# 8.2.2: timestamps read as real instants
+
+Attribution and settlement timestamps must name a real instant: fields in range, no day
+past the end of its month, no hour 24 and no second 60. `aggregateAttributionPrimitives`
+throws on any other value and `verifySettlementRecord` reports it as malformed. Every axis
+period in a settlement record must equal the record period.
+
+The `apsToAp2*Mandate` converters throw when `policy_context.valid_until` is missing, when
+either bound is present but not an RFC 3339 instant, or when `valid_from` is later than
+`valid_until`. Validate the delegation first, or catch the error. `verifyAp2Mandate`
+rejects a mandate whose `iat` is later than its `exp`, whose bounds are not integer seconds
+in RFC 3339 range (a millisecond value is out of range), or whose envelope timestamp is not
+an RFC 3339 instant. `clock_skew_seconds` must be a finite non-negative number.
+
+`checkClockSkew` has a new verdict, `malformed`. Treat any verdict other than `valid` as a
+rejection.
+
 # Migration to 8.2.1: second 60 rejected in every timestamp
 
 Delegation, revocation, receipt-core, action-reference and external action-ref
