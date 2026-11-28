@@ -200,7 +200,26 @@ function failure(code: AuthorityFailure['code'], message: string): AuthorityFail
  * argument is read at most once and cannot answer this function's checks differently
  * from the value this function actually returns failures about.
  */
-export function validateAuthorityDelegationShape(value: unknown): AuthorityFailure[] {
+/** Section 4.3 child issuance time rule: a record whose parent_delegation_id is not null
+ *  must not take effect before its own issued_at. A root may. */
+export function childNotBeforePredatesIssuedAt(parentDelegationId: unknown, issuedAt: unknown, notBefore: unknown): boolean {
+  return parentDelegationId !== null && isCanonicalTimestamp(issuedAt) &&
+    typeof notBefore === 'string' && notBefore < issuedAt
+}
+
+/** Options for validateAuthorityDelegationShape. */
+export interface AuthorityDelegationShapeOptions {
+  /** Check a non-root record's not_before against its issued_at here (default true). The
+   *  chain verifier passes false and applies the rule in its child issuance time phase,
+   *  as draft-pidlisnyi-aps-04 section 4.3 places it there. */
+  childIssuanceTime?: boolean
+}
+
+export function validateAuthorityDelegationShape(
+  value: unknown,
+  options: AuthorityDelegationShapeOptions = {},
+): AuthorityFailure[] {
+  const childIssuanceTime = options.childIssuanceTime !== false
   const failures: AuthorityFailure[] = []
   const top = record(snapshotPlainData(value))
   if (!top) return [failure('SCHEMA_INVALID', 'delegation must be an exact closed v1 object')]
@@ -305,7 +324,7 @@ export function validateAuthorityDelegationShape(value: unknown): AuthorityFailu
     failures.push(failure('NONCANONICAL_VALUE', 'time bounds must be canonical UTC milliseconds'))
   } else if (time.not_before >= time.not_after) {
     failures.push(failure('SCHEMA_INVALID', 'time window must be non-empty'))
-  } else if (top.parent_delegation_id !== null && isCanonicalTimestamp(top.issued_at) && time.not_before < top.issued_at) {
+  } else if (childIssuanceTime && childNotBeforePredatesIssuedAt(top.parent_delegation_id, top.issued_at, time.not_before)) {
     failures.push(failure('SCHEMA_INVALID', 'time.not_before cannot predate issued_at'))
   }
 

@@ -8,7 +8,7 @@ import {
 } from './canonical.js'
 import { compareAuthority } from './compare.js'
 import { readPlainDataChainContainer, snapshotPlainData } from './plain-data.js'
-import { isCanonicalTimestamp, validateAuthorityDelegationShape } from './schema.js'
+import { childNotBeforePredatesIssuedAt, isCanonicalTimestamp, validateAuthorityDelegationShape } from './schema.js'
 import type {
   AuthorityChainVerificationOptions,
   AuthorityDelegationV1,
@@ -162,7 +162,7 @@ export function verifyAuthorityDelegationChain(
   const chain: AuthorityDelegationV1[] = []
   for (let i = 0; i < container.length; i++) {
     const snapshot = snapshotPlainData(container[i])
-    const failures = validateAuthorityDelegationShape(snapshot).map(item => indexed(item, i))
+    const failures = validateAuthorityDelegationShape(snapshot, { childIssuanceTime: false }).map(item => indexed(item, i))
     if (failures.length > 0) {
       return result(shapeState(failures), failures)
     }
@@ -251,6 +251,11 @@ export function verifyAuthorityDelegationChain(
     const issued = chain[i].issued_at
     if (issued < parent.authority.time.not_before || issued >= parent.authority.time.not_after) {
       return result('invalid', [{ code: 'ISSUED_AT_OUTSIDE_PARENT', index: i, message: 'child was issued outside parent validity window' }])
+    }
+    // Section 4.3 places the not_before rule in this phase, not in the schema phase, so
+    // an earlier-phase fault (an unreachable key, an untrusted root) decides first.
+    if (childNotBeforePredatesIssuedAt(chain[i].parent_delegation_id, issued, chain[i].authority.time.not_before)) {
+      return result('invalid', [{ code: 'SCHEMA_INVALID', index: i, message: 'time.not_before cannot predate issued_at' }])
     }
   }
 
