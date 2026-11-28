@@ -1,0 +1,65 @@
+name: Verify published release
+
+# Re-runs the post-publish checks of release.yml against a version that is already
+# on npm, without publishing anything: registry bytes against the immutable GitHub
+# release asset, provenance metadata, then npm install and npm audit signatures.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Published version to verify, without the leading v (for example 8.2.0)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the version input
+        env:
+          PACKAGE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$PACKAGE_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::version must be a semver version without a leading v"
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 1
+          path: release-source
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v6
+        with:
+          node-version: '22'
+          package-manager-cache: false
+
+      - name: Download the immutable release tarball
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PACKAGE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir release-bundle
+          gh release download "v$PACKAGE_VERSION" --dir release-bundle --pattern "agent-passport-system-$PACKAGE_VERSION.tgz"
+
+      - name: Verify registry bytes and npm provenance against the release asset
+        working-directory: release-bundle
+        env:
+          PACKAGE_VERSION: ${{ inputs.version }}
+          REQUIRE_PRESENT: 'true'
+          REQUIRE_PROVENANCE: 'true'
+          TARBALL: agent-passport-system-${{ inputs.version }}.tgz
+        run: node ../release-source/.github/scripts/release-registry.mjs
+
+      - name: Verify registry signatures and attestations with npm
+        env:
+          PACKAGE_VERSION: ${{ inputs.version }}
+        run: node "$GITHUB_WORKSPACE/release-source/.github/scripts/release-verify-npm.mjs"
