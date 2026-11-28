@@ -8,8 +8,9 @@
 // script that a workflow runs (npm test, npm run <name>), or in the test script
 // of a package whose directory a workflow runs npm test in.
 //
-// With --junit <file>, also checks execution: every file named in the root test
-// script must have reported at least one test case in that junit report.
+// With --executed <file>, also checks execution: every file named in the root
+// test script must appear in that list, which test-files-reporter.mjs writes
+// during npm test with one path per test file that reported a test case.
 
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
@@ -20,7 +21,7 @@ const TEST_FILE = /\.test\.(ts|mjs|js)$/
 const NODE_TEST = /from ['"]node:test['"]|require\(['"]node:test['"]\)/
 
 /** Whitespace tokens of a command line that look like file paths. */
-const pathTokens = (text) => text.split(/[\s"'`]+/).filter((t) => /\.(ts|mjs|js)$/.test(t))
+const pathTokens = (text) => text.split(/[\s"'`]+/).filter((t) => !t.startsWith('-') && /\.(ts|mjs|js)$/.test(t))
 
 /** Expand an exclusion key: an exact path, or a directory prefix ending in /*. */
 function excluded(file, exclusions) {
@@ -86,13 +87,12 @@ export function collect(root) {
   return { testFiles, registered, exclusions, rootTestFiles: pathTokens(scripts.test ?? '') }
 }
 
-/** Files named in the root test script that reported no test case in a junit report. */
-export function notExecuted(rootTestFiles, junitXml, root) {
-  const seen = new Set()
-  for (const m of junitXml.matchAll(/<testcase\b[^>]*\bfile="([^"]+)"/g)) {
-    const abs = m[1]
-    seen.add(abs.startsWith(root) ? abs.slice(root.length + 1) : abs)
-  }
+/** Files named in the root test script that are absent from the executed list. */
+export function notExecuted(rootTestFiles, executedText, root) {
+  const seen = new Set(
+    executedText.split('\n').map((l) => l.trim()).filter(Boolean)
+      .map((abs) => (abs.startsWith(root + '/') ? abs.slice(root.length + 1) : abs)),
+  )
   return rootTestFiles.filter((f) => !seen.has(f))
 }
 
@@ -107,10 +107,10 @@ function main() {
   for (const f of r.emptyReasons) problems.push(`exclusion without a reason: ${f}`)
   const missing = rootTestFiles.filter((f) => !existsSync(join(root, f)))
   for (const f of missing) problems.push(`root test script names a file that does not exist: ${f}`)
-  const i = process.argv.indexOf('--junit')
+  const i = process.argv.indexOf('--executed')
   if (i > 0) {
-    const xml = readFileSync(process.argv[i + 1], 'utf8')
-    for (const f of notExecuted(rootTestFiles.filter((f) => TEST_FILE.test(f) || existsSync(join(root, f))), xml, root)) {
+    const listed = readFileSync(process.argv[i + 1], 'utf8')
+    for (const f of notExecuted(rootTestFiles, listed, root)) {
       problems.push(`named in npm test but reported no test case: ${f}`)
     }
   }

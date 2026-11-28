@@ -82,7 +82,7 @@ jobs:
       - name: Test registration guard
         run: |
           node --test .github/scripts/check-test-registration.test.mjs
-          node .github/scripts/check-test-registration.mjs --junit .test-results.junit.xml
+          node .github/scripts/check-test-registration.mjs --executed .test-results.files.txt
 
       - name: Interop tests
         run: npm run test:interop

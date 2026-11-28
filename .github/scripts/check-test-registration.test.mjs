@@ -32,8 +32,7 @@ test('a directory exclusion covers the files under it', () => {
 })
 
 test('a registered file that reported no test case is caught', () => {
-  const xml = '<testsuites><testcase name="t" file="/r/tests/a.test.ts"/></testsuites>'
-  assert.deepEqual(notExecuted(['tests/a.test.ts', 'tests/b.test.ts'], xml, '/r'), ['tests/b.test.ts'])
+  assert.deepEqual(notExecuted(['tests/a.test.ts', 'tests/b.test.ts'], '/r/tests/a.test.ts\n', '/r'), ['tests/b.test.ts'])
 })
 
 // Negative control end to end: a throwaway repository with one registered and
