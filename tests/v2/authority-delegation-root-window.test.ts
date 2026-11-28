@@ -127,7 +127,11 @@ test('issueAuthorityDelegation accepts a root body whose not_before predates its
   assert.doesNotThrow(() => issueAuthorityDelegation(rootBodyWithEarlyWindow(), ROOT_KEY))
 })
 
-test('a child whose not_before predates its issued_at still verifies invalid SCHEMA_INVALID at index 1', () => {
+// This child is unsigned and its delegation_id is not recomputed, so it has two faults.
+// Section 4.3 is phase-major: the delegation_id phase comes before the child issuance
+// time phase, so ID_MISMATCH decides. The rule alone, on a signed child, is covered in
+// authority-delegation-phase-order.test.ts.
+test('an unsigned child whose not_before predates its issued_at reports the earlier delegation_id phase', () => {
   const root = issueAuthorityDelegation(
     rootBodyWith('2026-07-18T22:00:00.000Z', {
       not_before: '2026-07-18T22:00:00.000Z',
@@ -146,7 +150,7 @@ test('a child whose not_before predates its issued_at still verifies invalid SCH
     resolveRevocation: () => 'active',
   })
   assert.equal(checked.state, 'invalid')
-  assert.equal(checked.failures[0]?.code, 'SCHEMA_INVALID')
+  assert.equal(checked.failures[0]?.code, 'ID_MISMATCH')
   assert.equal(checked.failures[0]?.index, 1)
 })
 
