@@ -1,3 +1,13 @@
+# Unreleased: second 60 rejected in every timestamp
+
+Delegation, revocation, receipt-core, action-reference and external action-ref
+timestamps must use seconds 00 through 59, as draft-pidlisnyi-aps-04 sections 4.3 and
+5.2 require. Month-end `23:59:60` values that releases up to 8.2.0 accepted are now
+rejected. Producers that emit from a platform clock never produce second 60. A record
+already signed with second 60 cannot be repaired in place: changing the timestamp
+changes the signed bytes and needs a new signature, and an external action-ref computed
+over such a timestamp has no replacement digest.
+
 # Migration to 8.0.0: Cycles receipt to envelope correspondence
 
 Correspondence applies to permit and release receipts verified with an envelope,

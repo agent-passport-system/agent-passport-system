@@ -699,3 +699,18 @@ test('a refused request is never handed the record already stored', () => {
   assert.equal(canonicalizeJCS(store.get(delegation.delegation_id)), canonicalizeJCS(first))
   assert.equal(createAuthorityRevocationResolver(store, verifyOptions)(delegation), 'revoked')
 })
+
+// draft-pidlisnyi-aps-04 section 4.3 rejects the second value 60 wherever it
+// appears. Appendix A.4 of draft-04 listed the revocation record as not
+// established on that value. revoked_at uses the delegation timestamp check,
+// so it refuses 23:59:60 at month end and still admits 23:59:59.999.
+test('revoked_at refuses second 60, including 23:59:60 at month end', async () => {
+  const { validateAuthorityRevocationShape } = await import('../../src/v2/authority-revocation/schema.js')
+  const revocation = revokeByIssuer(root())
+  for (const revoked_at of ['2016-12-31T23:59:60.000Z', '2026-06-30T23:59:60.000Z']) {
+    const failures = validateAuthorityRevocationShape({ ...revocation, revoked_at })
+    assert.ok(failures.some((f) => f.code === 'NONCANONICAL_VALUE' && /revoked_at/.test(f.message)), revoked_at)
+    assert.equal(verifyAuthorityRevocation({ ...revocation, revoked_at }, root(), verifyOptions).valid, false)
+  }
+  assert.deepEqual(validateAuthorityRevocationShape({ ...revocation, revoked_at: '2016-12-31T23:59:59.999Z' }), [])
+})

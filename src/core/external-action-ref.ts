@@ -19,14 +19,12 @@
 //   - the input domain below, which the APS-native form does not share
 //   - timestamp is an RFC 3339 date-time in UTC at exactly millisecond
 //     precision (three fractional-second digits and a literal Z), hashed as
-//     the byte sequence supplied and never normalized. Second 60 is accepted
-//     at 23:59 on the last day of any month in the proleptic Gregorian
-//     calendar. No leap-second table is consulted, although RFC 3339 section
-//     5.7 allows second 60 only where a leap second occurs. Every other
-//     second-60 value is invalid, and
-//     the year-month-day must otherwise name a day that exists under that
-//     calendar. A non-conforming value (wrong shape, non-string, a
-//     calendar-invalid date, or an out-of-place second-60 value) is
+//     the byte sequence supplied and never normalized. The second value is
+//     00 through 59 (draft-pidlisnyi-aps-04 section 5.2). Second 60 is
+//     rejected wherever it appears, including 23:59:60 at month end, which
+//     releases up to 8.2.0 accepted. The year-month-day must name a day that
+//     exists in the proleptic Gregorian calendar. A non-conforming value
+//     (wrong shape, non-string, second 60, or a calendar-invalid date) is
 //     rejected, never coerced, truncated, extended or renormalized.
 //
 // INPUT DOMAIN. The argentum-core specification this profile tracks
@@ -66,13 +64,13 @@
 import { canonicalHashJCS } from './canonical-jcs.js'
 
 // Canonical external timestamp shape: RFC 3339 UTC, exactly three
-// fractional-second digits, mandatory Z, second 00-60 in the grammar.
-// Calendar validity (day-in-month) and the second-60 rule (accepted at
-// 23:59 on any month's last day, with no leap-second table) are
-// checked separately below, since a regex cannot encode "30 is invalid in
-// February" or "this 23:59:60 is not on the last day".
+// fractional-second digits, mandatory Z, second 00-59. Calendar validity
+// (day-in-month) is checked separately below, since a regex cannot encode
+// "30 is invalid in February".
 const EXTERNAL_TS =
-  /^([0-9]{4})-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):([0-5][0-9]):([0-5][0-9]|60)\.[0-9]{3}Z$/
+  /^([0-9]{4})-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):([0-5][0-9]):([0-5][0-9])\.[0-9]{3}Z$/
+// Second 60 in an otherwise canonical shape, refused with its own reason.
+const EXTERNAL_TS_SECOND_60 = /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:60\.[0-9]{3}Z$/
 
 /** Input to computeExternalActionRefV1. */
 export interface ExternalActionRefV1Input {
@@ -103,9 +101,8 @@ function daysInMonth(year: number, month: number): number {
   return lengths[month - 1]
 }
 
-// Never validate a timestamp string with Date: Date cannot represent a
-// leap-second (:60) value, so it would reject the month-end second-60 values
-// this helper has always accepted.
+// Never validate a timestamp string with Date: Date.parse rolls an
+// impossible day such as 02-30 into the next month instead of failing.
 //
 // Every rejection below is a domain rejection and carries
 // OUT_OF_PROFILE_DOMAIN: the timestamp grammar and calendar rules ARE part of
@@ -113,6 +110,11 @@ function daysInMonth(year: number, month: number): number {
 // caller matching on the marker catches them alongside the ASCII, empty-scope
 // and duplicate-key refusals.
 function validateTimestampString(ts: string): string {
+  if (EXTERNAL_TS_SECOND_60.test(ts)) {
+    throw new Error(
+      `computeExternalActionRefV1: OUT_OF_PROFILE_DOMAIN: timestamp has second 60, which draft-pidlisnyi-aps-04 section 5.2 rejects wherever it appears, got ${JSON.stringify(ts)}`,
+    )
+  }
   const match = EXTERNAL_TS.exec(ts)
   if (!match) {
     throw new Error(
@@ -122,18 +124,10 @@ function validateTimestampString(ts: string): string {
   const year = Number(match[1])
   const month = Number(match[2])
   const day = Number(match[3])
-  const hour = Number(match[4])
-  const minute = Number(match[5])
-  const second = Number(match[6])
   const maxDay = daysInMonth(year, month)
   if (day > maxDay) {
     throw new Error(
       `computeExternalActionRefV1: OUT_OF_PROFILE_DOMAIN: timestamp names a day that does not exist in that month, got ${JSON.stringify(ts)}`,
-    )
-  }
-  if (second === 60 && !(hour === 23 && minute === 59 && day === maxDay)) {
-    throw new Error(
-      `computeExternalActionRefV1: OUT_OF_PROFILE_DOMAIN: timestamp has second 60 outside 23:59 on the last day of its month, got ${JSON.stringify(ts)}`,
     )
   }
   return ts

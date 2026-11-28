@@ -200,7 +200,7 @@ describe('action_ref v2, section 4.1 type coercion rejection', () => {
   })
 })
 
-describe('action_ref v2, section 4.1 second-60 (leap second) admissibility (draft03-repair)', () => {
+describe('action_ref v2, draft-04 section 4.3 timestamp restrictions', () => {
   // AR-P01 of the cross-implementation vector file: a complete, already
   // valid ActionReferenceInputV2. Every case below is this object as-is or
   // with only issued_at replaced.
@@ -222,29 +222,23 @@ describe('action_ref v2, section 4.1 second-60 (leap second) admissibility (draf
     )
   })
 
-  it('AR-P17: second 60 on an actual leap-second date is accepted, digest from the section 4.1 formula', () => {
+  it('rejects month-end second 60 at construction, validation, hashing and serialized entry points', () => {
     const value: ActionReferenceInputV2 = { ...base, issued_at: '2016-12-31T23:59:60.000Z' }
-    assert.equal(
-      computeActionRefV2(value),
-      '970594ab1ede3ececd07231e045f2764fc1b5cefad1017df556f98d41ab5a5eb',
-    )
+    assert.throws(() => createActionReferenceInputV2(value), /issued_at/)
+    assert.throws(() => validateActionReferenceInputV2(value), /issued_at/)
+    assert.throws(() => computeActionRefV2(value), /issued_at/)
+    assert.throws(() => parseActionReferenceInputV2(JSON.stringify(value)), /issued_at/)
+    assert.throws(() => computeActionRefV2FromJson(JSON.stringify(value)), /issued_at/)
   })
 
-  it('AR-N38 (formerly AR-P18): second 60 not at 23:59 on the last day of the month is rejected (was accepted before RFC 3339 section 5.7 was applied)', () => {
-    const value: ActionReferenceInputV2 = { ...base, issued_at: '2026-04-08T12:00:60.000Z' }
-    assert.throws(() => computeActionRefV2(value), /^Error: issued_at: invalid calendar timestamp$/)
-  })
-
-  it('AR-P17 and AR-N38 (formerly AR-P18) agree through the serialized entry point', () => {
-    const ar17: ActionReferenceInputV2 = { ...base, issued_at: '2016-12-31T23:59:60.000Z' }
-    const ar18: ActionReferenceInputV2 = { ...base, issued_at: '2026-04-08T12:00:60.000Z' }
-    assert.equal(computeActionRefV2FromJson(JSON.stringify(ar17)), computeActionRefV2(ar17))
-    assert.throws(() => computeActionRefV2FromJson(JSON.stringify(ar18)), /issued_at: invalid calendar timestamp/)
-    assert.throws(() => computeActionRefV2(ar18), /issued_at: invalid calendar timestamp/)
+  it('accepts month-end second 59 through both constructed and serialized paths', () => {
+    const value = createActionReferenceInputV2({ ...base, issued_at: '2016-12-31T23:59:59.000Z' })
+    assert.doesNotThrow(() => validateActionReferenceInputV2(value))
+    assert.equal(computeActionRefV2FromJson(JSON.stringify(value)), computeActionRefV2(value))
   })
 
   const rejectionCases: Array<[string, string, RegExp]> = [
-    ['second 61, past the leap-second allowance', '2026-04-08T12:00:61.000Z',
+    ['second 61, past the allowed seconds', '2026-04-08T12:00:61.000Z',
       /^Error: issued_at: expected canonical UTC milliseconds$/],
     ['day 30 of February in a non-leap year', '2026-02-30T00:00:00.000Z',
       /^Error: issued_at: invalid calendar timestamp$/],
@@ -254,20 +248,19 @@ describe('action_ref v2, section 4.1 second-60 (leap second) admissibility (draf
       /^Error: issued_at: expected canonical UTC milliseconds$/],
     ['second 60 with no fractional digits', '2026-04-08T12:00:60Z',
       /^Error: issued_at: expected canonical UTC milliseconds$/],
-    // RFC 3339 section 5.7 and Appendix D: second 60 is valid only
-    // at 23:59 on the last day of its month.
+    // Draft-04 section 4.3 rejects second 60 at every calendar position.
     ['second 60 not on the last day of the month (AR-N38, formerly AR-P18)', '2026-04-08T12:00:60.000Z',
-      /^Error: issued_at: invalid calendar timestamp$/],
+      /^Error: issued_at: expected canonical UTC milliseconds$/],
     ['second 60 on a day that is not the last day of June', '2026-06-29T23:59:60.000Z',
-      /^Error: issued_at: invalid calendar timestamp$/],
+      /^Error: issued_at: expected canonical UTC milliseconds$/],
     ['second 60 at minute 58', '2016-12-31T23:58:60.000Z',
-      /^Error: issued_at: invalid calendar timestamp$/],
+      /^Error: issued_at: expected canonical UTC milliseconds$/],
     ['second 60 at hour 22', '2016-12-31T22:59:60.000Z',
-      /^Error: issued_at: invalid calendar timestamp$/],
+      /^Error: issued_at: expected canonical UTC milliseconds$/],
     ['second 60 on February 28 of a leap year, not the last day', '2028-02-28T23:59:60.000Z',
-      /^Error: issued_at: invalid calendar timestamp$/],
+      /^Error: issued_at: expected canonical UTC milliseconds$/],
     ['second 60 on February 29 of a non-leap year, no such day', '2027-02-29T23:59:60.000Z',
-      /^Error: issued_at: invalid calendar timestamp$/],
+      /^Error: issued_at: expected canonical UTC milliseconds$/],
   ]
 
   for (const [label, issuedAt, message] of rejectionCases) {
@@ -277,16 +270,24 @@ describe('action_ref v2, section 4.1 second-60 (leap second) admissibility (draf
     })
   }
 
-  const acceptedCases: Array<[string, string]> = [
+  const monthEndLeapSeconds: Array<[string, string]> = [
     ['second 60 on the last day of February in a leap year', '2028-02-29T23:59:60.000Z'],
-    ['year 0000, a leap year under the proleptic Gregorian rule', '0000-02-29T00:00:00.000Z'],
-    // RFC 3339 section 5.7 and Appendix D: second 60 at 23:59 on
-    // the last day of its month.
     ['second 60 on the last day of December (AR-P17 date)', '2016-12-31T23:59:60.000Z'],
     ['second 60 on the last day of June', '2026-06-30T23:59:60.000Z'],
     ['second 60 on the last day of February in a leap year, non-zero milliseconds', '2028-02-29T23:59:60.999Z'],
     ['second 60 on the last day of February in a non-leap year', '2027-02-28T23:59:60.000Z'],
     ['second 60 on the last day of February, year 0000 (leap year)', '0000-02-29T23:59:60.000Z'],
+  ]
+
+  for (const [label, issuedAt] of monthEndLeapSeconds) {
+    it(`rejects issued_at: ${label}`, () => {
+      assert.throws(() => computeActionRefV2({ ...base, issued_at: issuedAt }), /issued_at/)
+    })
+  }
+
+  const acceptedCases: Array<[string, string]> = [
+    ['year 0000, a leap year under the proleptic Gregorian rule', '0000-02-29T00:00:00.000Z'],
+    ['second 59 on the last day of February in a leap year', '2028-02-29T23:59:59.999Z'],
   ]
 
   for (const [label, issuedAt] of acceptedCases) {
