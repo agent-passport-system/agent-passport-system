@@ -15,6 +15,7 @@
  * no escalation_requirements, behavior is unchanged.
  */
 
+import { parseRfc3339 } from '../core/rfc3339.js'
 import { v4 as uuidv4 } from 'uuid'
 import { sha256, signObject, verifyObject } from './bridge.js'
 import { validateV2Delegation } from './delegation-v2.js'
@@ -152,7 +153,10 @@ export function isConfirmationValid(
   confirmation: OwnerConfirmation,
   now: Date = new Date(),
 ): boolean {
-  return now.getTime() <= new Date(confirmation.expires_at).getTime()
+  // An unreadable or impossible expiry (02-30 rolls into March under Date) is
+  // not a valid confirmation, and neither is an unreadable clock.
+  const exp = parseRfc3339(confirmation.expires_at)
+  return exp.ok && Number.isFinite(now.getTime()) && now.getTime() <= exp.ms
 }
 
 export interface ConfirmationVerdict {

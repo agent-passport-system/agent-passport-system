@@ -44,6 +44,7 @@
 
 import { createHash } from 'node:crypto'
 import { canonicalize } from '../../core/canonical.js'
+import { parseRfc3339 } from '../../core/rfc3339.js'
 import { isEvidenceFresh, computeEvidenceAge } from '../../core/freshness.js'
 import type { AttestationFreshness } from '../../types/passport.js'
 import type { ActionReceipt } from '../../types/passport.js'
@@ -60,7 +61,7 @@ import type { ScopeOfClaim } from '../accountability/types/base.js'
 /** Default uniform clock skew (5 minutes), matching instruction-provenance. */
 export const DEFAULT_CLOCK_SKEW_MS = 5 * 60 * 1000
 
-export type SkewVerdict = 'valid' | 'not_yet_valid' | 'expired'
+export type SkewVerdict = 'valid' | 'not_yet_valid' | 'expired' | 'malformed'
 
 export interface SkewCheckResult {
   verdict: SkewVerdict
@@ -91,11 +92,18 @@ export function checkClockSkew(opts: {
   const nowMs = (opts.now ?? new Date()).getTime()
 
   const iatMs = toMs(opts.iat)
+  const expMs = toMs(opts.exp)
+  // An unreadable bound, or an unreadable clock, is refused. Read as absent it
+  // would skip its comparison and report the timestamp as valid.
+  if (Number.isNaN(iatMs) || Number.isNaN(expMs) || !Number.isFinite(nowMs) ||
+      typeof skew !== 'number' || !Number.isFinite(skew) || skew < 0 ||
+      (iatMs !== undefined && expMs !== undefined && iatMs > expMs)) {
+    return { verdict: 'malformed', outsideByMs: 0 }
+  }
   if (iatMs !== undefined && iatMs > nowMs + skew) {
     return { verdict: 'not_yet_valid', outsideByMs: iatMs - (nowMs + skew) }
   }
 
-  const expMs = toMs(opts.exp)
   if (expMs !== undefined && expMs < nowMs - skew) {
     return { verdict: 'expired', outsideByMs: (nowMs - skew) - expMs }
   }
@@ -103,12 +111,13 @@ export function checkClockSkew(opts: {
   return { verdict: 'valid', outsideByMs: 0 }
 }
 
+/** Absent stays undefined. Anything present that is not a real instant gives NaN. */
 function toMs(t?: Date | string | number): number | undefined {
   if (t === undefined) return undefined
-  if (t instanceof Date) return t.getTime()
-  if (typeof t === 'number') return t
-  const parsed = Date.parse(t)
-  return Number.isNaN(parsed) ? undefined : parsed
+  if (t instanceof Date) return Number.isFinite(t.getTime()) ? t.getTime() : NaN
+  if (typeof t === 'number') return Number.isFinite(t) ? t : NaN
+  const parsed = parseRfc3339(t)
+  return parsed.ok ? parsed.ms : NaN
 }
 
 // ══════════════════════════════════════════════════════════════════

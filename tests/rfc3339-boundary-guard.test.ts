@@ -137,3 +137,28 @@ describe('boundary files interpret time only through parseRfc3339', () => {
     assert.equal(/new\s+Date\s*\(/.test(src), false, 'src/core/rfc3339.ts constructs a Date')
   })
 })
+
+// Settlement and AP2 decisions read untrusted timestamps outside the swept roots.
+// Each of these files once compared a Date.parse value, so NaN made a window,
+// period or lifetime check pass. They must read time through parseRfc3339.
+const DECISION_FILES = [
+  'src/v2/attribution-primitive/canonical.ts',
+  'src/v2/attribution-settlement/aggregate.ts',
+  'src/v2/attribution-settlement/verify.ts',
+  'src/v2/payment-rails/ap2/index.ts',
+  'src/v2/verifier-hardening/index.ts',
+  'src/v2/read_fidelity_receipt/receipt.ts',
+]
+
+describe('settlement, AP2 and skew decisions never call Date.parse', () => {
+  it('none of the decision files calls Date.parse', () => {
+    const offenders: string[] = []
+    for (const file of DECISION_FILES) {
+      const src = strip(readFileSync(join(REPO_ROOT, file), 'utf8'))
+      src.split('\n').forEach((line, i) => {
+        if (/\bDate\.parse\s*\(/.test(line)) offenders.push(`${file}:${i + 1}  ${line.trim().slice(0, 100)}`)
+      })
+    }
+    assert.deepEqual(offenders, [], `Date.parse in a decision file:\n${offenders.join('\n')}`)
+  })
+})

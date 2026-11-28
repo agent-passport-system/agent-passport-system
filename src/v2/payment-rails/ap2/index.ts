@@ -53,6 +53,7 @@ function _ap2SignerFor(
   return publicKeyFromPrivate(privateKeyHex)
 }
 import { verifyOwnerConfirmation } from '../../human-escalation.js'
+import { parseRfc3339 } from '../../../core/rfc3339.js'
 import type { OwnerConfirmation, V2Delegation } from '../../types.js'
 import { resolveSpendLimitCents } from '../scope-resolution.js'
 import {
@@ -121,18 +122,54 @@ export { AP2_VERSION } from './types.js'
 
 // ── Helpers ───────────────────────────────────────────────────────
 
-/** ISO 8601 string → Unix epoch seconds. Returns undefined on parse fail. */
-function _isoToUnixSeconds(iso: string | undefined): number | undefined {
+/** RFC 3339 string → Unix epoch seconds. An absent bound stays absent. A
+ *  present bound that is not a real RFC 3339 instant throws: dropping it would
+ *  emit a mandate with no iat or exp, which verifyAp2Mandate reads as no limit. */
+function _isoToMs(iso: string | undefined, field: string): number | undefined {
   if (iso === undefined) return undefined
-  const ms = Date.parse(iso)
-  if (Number.isNaN(ms)) return undefined
-  return Math.floor(ms / 1000)
+  const parsed = parseRfc3339(iso)
+  if (!parsed.ok) {
+    throw new Error(`apsToAp2: policy_context.${field} is not an RFC 3339 instant (${parsed.reason})`)
+  }
+  if (parsed.ms < 0) {
+    throw new Error(`apsToAp2: policy_context.${field} is before 1970, which an AP2 bound cannot carry`)
+  }
+  return parsed.ms
 }
 
-/** Unix epoch seconds → ISO 8601 with milliseconds + Z. */
-function _unixSecondsToIso(s: number | undefined): string | undefined {
+/** Largest Unix second an AP2 bound may carry: 9999-12-31T23:59:59Z, the last
+ *  instant RFC 3339 can name. A millisecond value read as seconds lands far past it. */
+const MAX_AP2_SECONDS = 253402300799
+
+function _isAp2Seconds(v: unknown): v is number {
+  return Number.isSafeInteger(v) && (v as number) >= 0 && (v as number) <= MAX_AP2_SECONDS
+}
+
+/** Unix epoch seconds → ISO 8601 with milliseconds + Z. Throws on anything that is
+ *  not an integer second in the RFC 3339 range, so a bad bound never becomes 1970
+ *  or a non-RFC 3339 year. */
+function _unixSecondsToIso(s: unknown, field: string): string | undefined {
   if (s === undefined) return undefined
+  if (!_isAp2Seconds(s)) {
+    throw new Error(`ap2MandateToApsDelegation: ${field} must be an integer count of seconds within RFC 3339 range`)
+  }
   return new Date(s * 1000).toISOString()
+}
+
+/** Set iat and exp on a mandate from the delegation window. valid_until is
+ *  required (a mandate without exp never expires) and must not precede valid_from. */
+function _applyLifetime(mandate: { iat?: number; exp?: number }, delegation: V2Delegation): void {
+  const fromMs = _isoToMs(delegation.policy_context.valid_from, 'valid_from')
+  const untilMs = _isoToMs(delegation.policy_context.valid_until, 'valid_until')
+  if (untilMs === undefined) {
+    throw new Error('apsToAp2: policy_context.valid_until is required, a mandate without exp never expires')
+  }
+  // Compare before rounding to seconds, so a reversal inside one second is caught.
+  if (fromMs !== undefined && fromMs > untilMs) {
+    throw new Error('apsToAp2: policy_context.valid_from is later than valid_until')
+  }
+  if (fromMs !== undefined) mandate.iat = Math.floor(fromMs / 1000)
+  mandate.exp = Math.floor(untilMs / 1000)
 }
 
 /** Build a cnf claim from an APS Ed25519 hex pubkey. APS pubkeys are
@@ -286,10 +323,7 @@ export function apsToAp2IntentMandate(
     constraints,
     cnf: _cnfFromEd25519Pubkey(delegation.delegatee),
   }
-  const iat = _isoToUnixSeconds(delegation.policy_context.valid_from)
-  const exp = _isoToUnixSeconds(delegation.policy_context.valid_until)
-  if (iat !== undefined) mandate.iat = iat
-  if (exp !== undefined) mandate.exp = exp
+  _applyLifetime(mandate, delegation)
   return mandate
 }
 
@@ -346,10 +380,7 @@ export function apsToAp2CartMandate(
     total: cart.total,
     cnf: _cnfFromEd25519Pubkey(delegation.delegatee),
   }
-  const iat = _isoToUnixSeconds(delegation.policy_context.valid_from)
-  const exp = _isoToUnixSeconds(delegation.policy_context.valid_until)
-  if (iat !== undefined) mandate.iat = iat
-  if (exp !== undefined) mandate.exp = exp
+  _applyLifetime(mandate, delegation)
   return mandate
 }
 
@@ -402,10 +433,7 @@ export function apsToAp2PaymentMandate(
   if (opts.pisp !== undefined) mandate.pisp = opts.pisp
   if (opts.execution_date !== undefined) mandate.execution_date = opts.execution_date
   if (opts.risk_data !== undefined) mandate.risk_data = opts.risk_data
-  const iat = _isoToUnixSeconds(delegation.policy_context.valid_from)
-  const exp = _isoToUnixSeconds(delegation.policy_context.valid_until)
-  if (iat !== undefined) mandate.iat = iat
-  if (exp !== undefined) mandate.exp = exp
+  _applyLifetime(mandate, delegation)
   return mandate
 }
 
@@ -467,10 +495,7 @@ export function apsToAp2OpenPaymentMandate(
     constraints,
     cnf: _cnfFromEd25519Pubkey(delegation.delegatee),
   }
-  const iat = _isoToUnixSeconds(delegation.policy_context.valid_from)
-  const exp = _isoToUnixSeconds(delegation.policy_context.valid_until)
-  if (iat !== undefined) mandate.iat = iat
-  if (exp !== undefined) mandate.exp = exp
+  _applyLifetime(mandate, delegation)
   return mandate
 }
 
@@ -521,12 +546,25 @@ export function ap2MandateToApsDelegation(
   const spend_limit_key = opts.spend_limit_key ?? 'commerce.spend_limit'
   const delegatee = _ed25519PubkeyHexFromCnf((mandate as { cnf?: AP2Cnf }).cnf) ?? ''
 
+  if (opts.created_at !== undefined && !parseRfc3339(opts.created_at).ok) {
+    throw new Error('ap2MandateToApsDelegation: opts.created_at is not an RFC 3339 instant')
+  }
+  const iatRaw = (mandate as { iat?: unknown }).iat
+  const expRaw = (mandate as { exp?: unknown }).exp
+  if (_isAp2Seconds(iatRaw) && _isAp2Seconds(expRaw) && iatRaw > expRaw) {
+    throw new Error('ap2MandateToApsDelegation: iat is later than exp')
+  }
   const valid_from =
-    _unixSecondsToIso((mandate as { iat?: number }).iat) ??
+    _unixSecondsToIso(iatRaw, 'iat') ??
     opts.created_at ??
     new Date().toISOString()
   const valid_until =
-    _unixSecondsToIso((mandate as { exp?: number }).exp) ?? valid_from
+    _unixSecondsToIso(expRaw, 'exp') ?? valid_from
+  const fromParsed = parseRfc3339(valid_from)
+  const untilParsed = parseRfc3339(valid_until)
+  if (!fromParsed.ok || !untilParsed.ok || fromParsed.ms > untilParsed.ms) {
+    throw new Error('ap2MandateToApsDelegation: valid_from is later than valid_until')
+  }
 
   // Build action_categories + resource_limits from the mandate type.
   let action_categories: string[]
@@ -745,9 +783,30 @@ export function verifyAp2Mandate(
   // 3. ttl checks.
   const now = options.now ?? new Date()
   const skew = options.clock_skew_seconds ?? 60
+  // An unreadable clock or skew would make both comparisons below false.
+  if (!(now instanceof Date) || !Number.isFinite(now.getTime())) {
+    return { valid: false, reason: 'MISSING_REQUIRED_FIELD', detail: 'now must be a valid Date' }
+  }
+  if (typeof skew !== 'number' || !Number.isFinite(skew) || skew < 0) {
+    return { valid: false, reason: 'MISSING_REQUIRED_FIELD', detail: 'clock_skew_seconds must be a finite non-negative number' }
+  }
   const nowSec = Math.floor(now.getTime() / 1000)
   const iat = (mandate as { iat?: number }).iat
   const exp = (mandate as { exp?: number }).exp
+  // A present iat or exp must be an integer count of seconds. Any other value
+  // (a string, NaN, null) would make both comparisons below false and skip the
+  // check, so it is refused instead of read as no bound.
+  for (const [name, v] of [['iat', iat], ['exp', exp]] as const) {
+    if (v !== undefined && !Number.isSafeInteger(v)) {
+      return { valid: false, reason: 'MISSING_REQUIRED_FIELD', detail: `${name} must be an integer count of seconds` }
+    }
+    if (v !== undefined && !_isAp2Seconds(v)) {
+      return { valid: false, reason: 'MISSING_REQUIRED_FIELD', detail: `${name} must be within RFC 3339 range in seconds (a millisecond value is out of range)` }
+    }
+  }
+  if (iat !== undefined && exp !== undefined && iat > exp) {
+    return { valid: false, reason: 'MISSING_REQUIRED_FIELD', detail: 'iat is later than exp' }
+  }
   if (iat !== undefined && iat > nowSec + skew) {
     return { valid: false, reason: 'NOT_YET_VALID', detail: `iat=${iat} > now+skew=${nowSec + skew}` }
   }
@@ -799,8 +858,8 @@ export function verifyAp2Mandate(
         detail: `claim_type=${signed.claim_type}`,
       }
     }
-    if (typeof signed.timestamp !== 'string' || signed.timestamp.length === 0) {
-      return { valid: false, reason: 'MISSING_REQUIRED_FIELD', detail: 'timestamp' }
+    if (typeof signed.timestamp !== 'string' || !parseRfc3339(signed.timestamp).ok) {
+      return { valid: false, reason: 'MISSING_REQUIRED_FIELD', detail: 'timestamp must be an RFC 3339 instant' }
     }
     if (
       !signed.scope_of_claim ||

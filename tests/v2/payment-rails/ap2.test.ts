@@ -347,6 +347,7 @@ describe('signAp2Mandate + verifyAp2Mandate', () => {
     const expired = _delegation({
       policy_context: {
         ..._delegation().policy_context,
+        valid_from: new Date('2019-01-01T00:00:00.000Z').toISOString(),
         valid_until: past,
       },
     })
@@ -363,6 +364,7 @@ describe('signAp2Mandate + verifyAp2Mandate', () => {
       policy_context: {
         ..._delegation().policy_context,
         valid_from: future,
+        valid_until: new Date('2100-01-01T00:00:00.000Z').toISOString(),
       },
     })
     const m = apsToAp2IntentMandate(notYet, { currency: 'USD' })

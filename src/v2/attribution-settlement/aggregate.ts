@@ -32,6 +32,7 @@ import { createHash } from 'node:crypto'
 import { canonicalize, canonicalizeForWrite } from '../../core/canonical.js'
 import {
   assertCanonicalTimestamp,
+  canonicalTimestampMs,
 } from '../attribution-primitive/canonical.js'
 import type {
   AttributionAxisTag,
@@ -290,9 +291,7 @@ function assertPeriod(period: SettlementPeriod): void {
   if (!period || typeof period !== 'object') {
     throw new Error('attribution-settlement: period required')
   }
-  assertCanonicalTimestamp(period.t0)
-  assertCanonicalTimestamp(period.t1)
-  if (Date.parse(period.t0) >= Date.parse(period.t1)) {
+  if (canonicalTimestampMs(period.t0) >= canonicalTimestampMs(period.t1)) {
     throw new Error('attribution-settlement: period.t0 must be strictly before period.t1')
   }
   if (typeof period.period_id !== 'string' || period.period_id.length === 0) {
@@ -328,8 +327,8 @@ export function aggregateAttributionPrimitives(
   }
   assertPeriod(period)
 
-  const t0 = Date.parse(period.t0)
-  const t1 = Date.parse(period.t1)
+  const t0 = canonicalTimestampMs(period.t0)
+  const t1 = canonicalTimestampMs(period.t1)
   const skipOut = options.skipOutOfPeriod !== false
 
   const accums: Record<AttributionAxisTag, AxisAccum> = {
@@ -341,8 +340,7 @@ export function aggregateAttributionPrimitives(
 
   const inPeriod: AttributionPrimitive[] = []
   for (const r of receipts) {
-    assertCanonicalTimestamp(r.timestamp)
-    const ts = Date.parse(r.timestamp)
+    const ts = canonicalTimestampMs(r.timestamp)
     if (ts < t0 || ts >= t1) {
       if (!skipOut) {
         throw new Error(

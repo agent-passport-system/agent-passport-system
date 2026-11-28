@@ -1,5 +1,20 @@
 # Changelog
 
+## 8.2.2 (2026-11-28)
+
+### Security
+
+- Attribution settlement reads every timestamp as a real instant (GHSA-2c53-8hjg-gfx6). `assertCanonicalTimestamp` checked shape only, so a value such as `2026-01-01T00:00:99.000Z` or day `32` passed, `Date.parse` returned `NaN`, and the period checks in `aggregateAttributionPrimitives` and `verifySettlementRecord` did not fire. Such values are now rejected before any comparison. `verifySettlementRecord` also requires each axis period to equal the record period, and `verifyAttributionProjection` returns `MALFORMED` for an unreadable timestamp instead of throwing.
+- AP2 mandate conversion no longer drops an unreadable lifetime bound (GHSA-92qw-r36c-f986). The `apsToAp2*Mandate` converters read `valid_from` and `valid_until` with `parseRfc3339` and throw when a bound is present but unreadable, when `valid_until` is missing, or when the window is reversed. `verifyAp2Mandate` refuses an `iat` or `exp` that is not an integer second in RFC 3339 range, a lifetime whose `iat` is later than its `exp`, an envelope timestamp that is not an RFC 3339 instant, and an unusable clock or skew. `ap2MandateToApsDelegation` validates `iat`, `exp` and `created_at`.
+
+### Corrections
+
+- `preAuthorize`, the shared payment authorization check of the foundation rails, refuses an invalid `now` instead of comparing every time bound against `NaN`.
+- `isConfirmationValid` reads `expires_at` with `parseRfc3339`, so an impossible expiry such as February 30 is not valid on the day it would roll into.
+- `checkClockSkew` reports `malformed` for an unreadable bound, an unreadable clock, an unusable skew or a reversed window.
+- Read fidelity receipt timestamps are checked as real instants.
+- The 8.2.0 payment timestamp regression tests now run in `npm test`.
+
 ## 8.2.1 (2026-11-28)
 
 ### Timestamp conformance correction
