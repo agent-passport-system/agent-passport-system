@@ -83,6 +83,13 @@ function isMalformed(record: SettlementRecord): string | null {
     const axis = record.axes[tag]
     if (!axis || typeof axis !== 'object') return `axes.${tag} required`
     if (axis.axis !== tag) return `axes.${tag}.axis mismatch`
+    if (
+      !axis.period || typeof axis.period !== 'object' ||
+      axis.period.t0 !== record.period.t0 || axis.period.t1 !== record.period.t1 ||
+      axis.period.period_id !== record.period.period_id
+    ) {
+      return `axes.${tag}.period must equal period`
+    }
     if (typeof axis.axis_merkle_root !== 'string' || !HEX64.test(axis.axis_merkle_root)) {
       return `axes.${tag}.axis_merkle_root must be 64-char hex`
     }

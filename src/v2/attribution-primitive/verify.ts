@@ -61,12 +61,17 @@ export function verifyAttributionProjection(
     return { valid: false, reason: 'MERKLE_MISMATCH' }
   }
 
-  const envelope = envelopeBytes({
-    action_ref: projection.action_ref,
-    merkle_root: projection.merkle_root,
-    issuer: projection.issuer,
-    timestamp: projection.timestamp,
-  })
+  let envelope: string
+  try {
+    envelope = envelopeBytes({
+      action_ref: projection.action_ref,
+      merkle_root: projection.merkle_root,
+      issuer: projection.issuer,
+      timestamp: projection.timestamp,
+    })
+  } catch {
+    return { valid: false, reason: 'MALFORMED' }
+  }
   let sigOk = false
   try {
     sigOk = ed25519Verify(envelope, projection.signature, issuerPublicKeyHex)

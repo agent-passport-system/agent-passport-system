@@ -95,7 +95,9 @@ export function checkClockSkew(opts: {
   const expMs = toMs(opts.exp)
   // An unreadable bound, or an unreadable clock, is refused. Read as absent it
   // would skip its comparison and report the timestamp as valid.
-  if (Number.isNaN(iatMs) || Number.isNaN(expMs) || !Number.isFinite(nowMs)) {
+  if (Number.isNaN(iatMs) || Number.isNaN(expMs) || !Number.isFinite(nowMs) ||
+      typeof skew !== 'number' || !Number.isFinite(skew) || skew < 0 ||
+      (iatMs !== undefined && expMs !== undefined && iatMs > expMs)) {
     return { verdict: 'malformed', outsideByMs: 0 }
   }
   if (iatMs !== undefined && iatMs > nowMs + skew) {

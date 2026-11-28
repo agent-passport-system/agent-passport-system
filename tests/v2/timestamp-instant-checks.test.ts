@@ -14,6 +14,7 @@ import {
   verifySettlementRecord,
 } from '../../src/index.js'
 import {
+  ap2MandateToApsDelegation,
   apsToAp2CartMandate,
   apsToAp2IntentMandate,
   signAp2Mandate,
@@ -146,4 +147,85 @@ describe('checkClockSkew refuses an unreadable bound or clock', () => {
     assert.equal(checkClockSkew({ exp: '2026-06-02T00:00:00.000Z', now: new Date('x') }).verdict, 'malformed')
   })
   it('a NaN numeric bound is malformed', () => assert.equal(checkClockSkew({ exp: Number.NaN, now }).verdict, 'malformed'))
+})
+
+describe('AP2 lifetime: required expiry, ordered window, clock and range checks', () => {
+  const kp = generateKeyPair()
+  const now = new Date('2026-06-01T00:00:00.000Z')
+  const nowSec = Math.floor(now.getTime() / 1000)
+  const signedWith = (patch: Record<string, unknown>) => {
+    const m: any = apsToAp2IntentMandate(intent(), { currency: 'USD' })
+    Object.assign(m, patch)
+    for (const [k, v] of Object.entries(patch)) if (v === undefined) delete m[k]
+    return signAp2Mandate(m, kp.privateKey)
+  }
+
+  it('a delegation without valid_until is refused, since the mandate would never expire', () => {
+    const d: any = intent()
+    delete d.policy_context.valid_until
+    assert.throws(() => apsToAp2IntentMandate(d, { currency: 'USD' }), /valid_until is required/)
+  })
+  it('a reversed delegation window is refused', () => {
+    assert.throws(() => apsToAp2IntentMandate(intent({ valid_from: '2026-12-31T00:00:00.000Z', valid_until: '2026-05-04T00:00:00.000Z' }), { currency: 'USD' }), /later than valid_until/)
+  })
+  it('a reversed mandate window is refused even within skew', () => {
+    const r = verifyAp2Mandate(signedWith({ iat: nowSec + 50, exp: nowSec - 50 }), { now })
+    assert.equal(r.valid, false)
+    assert.match(r.detail ?? '', /iat is later than exp/)
+  })
+  it('an exp in milliseconds is out of range, not far future', () => {
+    const r = verifyAp2Mandate(signedWith({ exp: (nowSec - 3600) * 1000 }), { now })
+    assert.equal(r.valid, false)
+    assert.match(r.detail ?? '', /RFC 3339 range/)
+  })
+  for (const [label, opts] of [
+    ['an Invalid Date clock', { now: new Date('x') }],
+    ['a NaN skew', { now, clock_skew_seconds: Number.NaN }],
+    ['an Infinity skew', { now, clock_skew_seconds: Number.POSITIVE_INFINITY }],
+    ['a string skew', { now, clock_skew_seconds: '60' as unknown as number }],
+    ['a negative skew', { now, clock_skew_seconds: -1 }],
+  ] as const) {
+    it(`${label} is refused, so an expired mandate cannot pass`, () => {
+      const r = verifyAp2Mandate(signedWith({ exp: nowSec - 3600 }), opts as any)
+      assert.equal(r.valid, false)
+    })
+  }
+  it('the reverse conversion refuses bad bounds and created_at', () => {
+    const m: any = apsToAp2IntentMandate(intent(), { currency: 'USD' })
+    for (const patch of [{ iat: null }, { iat: true }, { exp: 1.5 }, { exp: Number.MAX_SAFE_INTEGER }, { iat: m.exp + 1 }]) {
+      assert.throws(() => ap2MandateToApsDelegation({ ...m, ...patch }, { delegator: 'did:aps:user' } as any), /ap2MandateToApsDelegation/, JSON.stringify(patch))
+    }
+    const noBounds: any = { ...m }
+    delete noBounds.iat
+    delete noBounds.exp
+    assert.throws(() => ap2MandateToApsDelegation(noBounds, { delegator: 'did:aps:user', created_at: '2026-02-30T00:00:00.000Z' } as any), /created_at/)
+  })
+})
+
+describe('owner confirmation expiry is read as a real instant', () => {
+  it('an impossible expiry is not valid on the day it rolls into', async () => {
+    const { isConfirmationValid } = await import('../../src/v2/human-escalation.js')
+    assert.equal(isConfirmationValid({ expires_at: '2026-02-30T00:00:00.000Z' } as any, new Date('2026-03-01T00:00:00.000Z')), false)
+    assert.equal(isConfirmationValid({ expires_at: '2026-03-02T00:00:00.000Z' } as any, new Date('2026-03-01T00:00:00.000Z')), true)
+  })
+})
+
+describe('settlement axis periods must match the record period', () => {
+  it('a record whose axis period differs is malformed', () => {
+    const rec = JSON.parse(JSON.stringify(fixture.expected_record))
+    const tag = Object.keys(rec.axes)[0]
+    rec.axes[tag].period = { ...rec.axes[tag].period, t0: '2026-02-30T00:00:00.000Z' }
+    const v = verifySettlementRecord(rec, { gatewayPublicKeyHex: fixture.gateway_public_key })
+    assert.equal(v.valid, false)
+  })
+})
+
+describe('checkClockSkew refuses an unusable skew and a reversed window', () => {
+  const now = new Date('2026-06-01T00:00:00.000Z')
+  for (const skew of [Number.NaN, Number.POSITIVE_INFINITY, -1, '300000' as unknown as number]) {
+    it(`skew ${String(skew)} is malformed`, () => assert.equal(checkClockSkew({ exp: '2026-05-31T00:00:00.000Z', now, allowedClockSkewMs: skew }).verdict, 'malformed'))
+  }
+  it('iat later than exp is malformed', () => {
+    assert.equal(checkClockSkew({ iat: '2026-06-01T00:00:01.000Z', exp: '2026-05-31T23:59:59.000Z', now }).verdict, 'malformed')
+  })
 })
