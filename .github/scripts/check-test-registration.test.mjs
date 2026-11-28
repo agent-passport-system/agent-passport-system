@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
-import { classify, notExecuted } from './check-test-registration.mjs'
+import { classify, notExecuted, entryProblem } from './check-test-registration.mjs'
 
 const SCRIPT = resolve('.github/scripts/check-test-registration.mjs')
 
@@ -15,18 +15,18 @@ test('an unregistered test file is reported', () => {
 })
 
 test('an exclusion needs a reason and must still match something', () => {
-  const r = classify(['tests/a.test.ts'], new Set(['tests/a.test.ts']), { 'tests/gone.test.ts': 'no longer exists anywhere', 'tests/b.test.ts': '' })
+  const r = classify(['tests/a.test.ts'], new Set(['tests/a.test.ts']), { 'tests/gone.test.ts': { kind: 'intentional', reason: 'no longer exists anywhere' }, 'tests/b.test.ts': { kind: 'intentional', reason: '' } })
   assert.deepEqual(r.staleExclusions, ['tests/gone.test.ts', 'tests/b.test.ts'])
-  assert.deepEqual(r.emptyReasons, ['tests/b.test.ts'])
+  assert.deepEqual(r.invalidEntries.map((e) => e.key), ['tests/b.test.ts'])
 })
 
 test('a file both run and excluded is reported', () => {
-  const r = classify(['tests/a.test.ts'], new Set(['tests/a.test.ts']), { 'tests/a.test.ts': 'claimed to be excluded' })
+  const r = classify(['tests/a.test.ts'], new Set(['tests/a.test.ts']), { 'tests/a.test.ts': { kind: 'intentional', reason: 'claimed to be excluded' } })
   assert.deepEqual(r.excludedButRun, ['tests/a.test.ts'])
 })
 
 test('a directory exclusion covers the files under it', () => {
-  const r = classify(['packages/p/x.test.ts', 'packages/p/sub/y.test.ts'], new Set(), { 'packages/p/*': 'package tests run elsewhere' })
+  const r = classify(['packages/p/x.test.ts', 'packages/p/sub/y.test.ts'], new Set(), { 'packages/p/*': { kind: 'intentional', reason: 'package tests run elsewhere' } })
   assert.deepEqual(r.unregistered, [])
   assert.deepEqual(r.staleExclusions, [])
 })
@@ -61,4 +61,15 @@ test('negative control: the guard fails on a repository with an unregistered tes
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
+})
+
+test('a temporary exclusion needs an owner and an issue link, an old bare string is refused', () => {
+  const issue = 'https://github.com/o/r/issues/7'
+  assert.equal(entryProblem({ kind: 'intentional', reason: 'runs in its own directory' }), undefined)
+  assert.equal(entryProblem({ kind: 'temporary', reason: 'suite is broken at main', owner: 'aeoess', task: issue }), undefined)
+  assert.match(entryProblem({ kind: 'temporary', reason: 'suite is broken at main', task: issue }), /owner/)
+  assert.match(entryProblem({ kind: 'temporary', reason: 'suite is broken at main', owner: 'aeoess' }), /task/)
+  assert.match(entryProblem({ kind: 'temporary', reason: 'suite is broken at main', owner: 'aeoess', task: 'later' }), /task/)
+  assert.match(entryProblem({ kind: 'skip', reason: 'suite is broken at main' }), /kind/)
+  assert.match(entryProblem('OPEN: not in CI yet, will fix'), /object/)
 })

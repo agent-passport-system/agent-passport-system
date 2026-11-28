@@ -1,10 +1,43 @@
 {
-  "$comment": "Test files that no required CI job runs, each with the reason. check-test-registration.mjs fails on any tracked test file that is neither run by CI nor listed here, and on any entry here that no longer exists or is now run by CI.",
-  "examples/interop/refund-exact-approval/refund-cases.test.ts": "Standalone example pinned to the published agent-passport-system 7.2.1 with its own install. Run with npm test in its directory.",
-  "packages/aps-bbs-credentials/tests/selective-disclosure.test.ts": "OPEN: package tests are not yet in CI. Needs the package's own install (bbs-signatures).",
-  "packages/aps-remote-signer/tests/adapters.test.ts": "OPEN: package tests are not yet in CI. Needs the package's own install.",
-  "packages/composio-governance/tests/adapter.test.ts": "OPEN: package tests are not yet in CI. Needs the package's own install.",
-  "packages/stripe-governance/tests/adapter.test.ts": "OPEN: package tests are not yet in CI. Needs the package's own install.",
-  "packages/aps-sdk-runtime/*": "OPEN: package tests are not yet in CI. Needs the native binding build.",
-  "interop/oauth-liu-composition/test.ts": "OPEN: FAILS at current main (committed vectors no longer verify, ReceiptV1: delegation_ref, and the emit step in before() fails). Was never run by CI. Regenerate the vectors, then add it to npm test."
+  "$comment": "Test files that no required CI job runs. kind intentional: meant to run outside CI. kind temporary: coverage is missing or broken and owed, with an owner and a task issue. check-test-registration.mjs fails on any tracked test file that is neither run by CI nor listed here, on any entry that no longer matches, and on any entry missing these fields.",
+  "examples/interop/refund-exact-approval/refund-cases.test.ts": {
+    "kind": "intentional",
+    "reason": "Standalone example pinned to the published agent-passport-system 7.2.1 with its own install. Run with npm test in its directory."
+  },
+  "packages/aps-bbs-credentials/tests/selective-disclosure.test.ts": {
+    "kind": "temporary",
+    "reason": "package tests are not yet in CI. Needs the package's own install (bbs-signatures).",
+    "owner": "aeoess",
+    "task": "https://github.com/agent-passport-system/agent-passport-system/issues/300"
+  },
+  "packages/aps-remote-signer/tests/adapters.test.ts": {
+    "kind": "temporary",
+    "reason": "package tests are not yet in CI. Needs the package's own install.",
+    "owner": "aeoess",
+    "task": "https://github.com/agent-passport-system/agent-passport-system/issues/300"
+  },
+  "packages/composio-governance/tests/adapter.test.ts": {
+    "kind": "temporary",
+    "reason": "package tests are not yet in CI. Needs the package's own install.",
+    "owner": "aeoess",
+    "task": "https://github.com/agent-passport-system/agent-passport-system/issues/300"
+  },
+  "packages/stripe-governance/tests/adapter.test.ts": {
+    "kind": "temporary",
+    "reason": "package tests are not yet in CI. Needs the package's own install.",
+    "owner": "aeoess",
+    "task": "https://github.com/agent-passport-system/agent-passport-system/issues/300"
+  },
+  "packages/aps-sdk-runtime/*": {
+    "kind": "temporary",
+    "reason": "package tests are not yet in CI. Needs the native binding build.",
+    "owner": "aeoess",
+    "task": "https://github.com/agent-passport-system/agent-passport-system/issues/300"
+  },
+  "interop/oauth-liu-composition/test.ts": {
+    "kind": "temporary",
+    "reason": "FAILS at current main (committed vectors no longer verify, ReceiptV1: delegation_ref, and the emit step in before() fails). Was never run by CI. Regenerate the vectors, then add it to npm test.",
+    "owner": "aeoess",
+    "task": "https://github.com/agent-passport-system/agent-passport-system/issues/301"
+  }
 }

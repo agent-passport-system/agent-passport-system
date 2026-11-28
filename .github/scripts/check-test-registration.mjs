@@ -8,6 +8,11 @@
 // script that a workflow runs (npm test, npm run <name>), or in the test script
 // of a package whose directory a workflow runs npm test in.
 //
+// Each exclusion is { kind, reason } plus, for kind "temporary", an owner and a
+// task link. "intentional" means the file is meant to run outside CI. "temporary"
+// means coverage is missing or broken and is owed, so it cannot pass as a quiet way
+// to keep CI green: it must name who owns the fix and the issue that tracks it.
+//
 // With --executed <file>, also checks execution: every file named in the root
 // test script must appear in that list, which test-files-reporter.mjs writes
 // during npm test with one path per test file that reported a test case.
@@ -36,7 +41,7 @@ function excluded(file, exclusions) {
  * Pure classification, so a negative control can run it on synthetic input.
  * @param testFiles tracked test files
  * @param registered set of registered paths
- * @param exclusions { path or dir/*: reason }
+ * @param exclusions { path or dir/*: { kind, reason, owner?, task? } }
  */
 export function classify(testFiles, registered, exclusions) {
   const unregistered = []
@@ -53,9 +58,24 @@ export function classify(testFiles, registered, exclusions) {
   }
   const staleExclusions = Object.keys(exclusions)
     .filter((k) => !k.startsWith('$') && !usedKeys.has(k) && !excludedButRun.includes(k))
-  const emptyReasons = Object.entries(exclusions)
-    .filter(([k, v]) => !k.startsWith('$') && (typeof v !== 'string' || v.trim().length < 10)).map(([k]) => k)
-  return { unregistered, staleExclusions, excludedButRun, emptyReasons }
+  const invalidEntries = Object.entries(exclusions)
+    .filter(([k]) => !k.startsWith('$'))
+    .map(([k, v]) => ({ key: k, problem: entryProblem(v) }))
+    .filter((e) => e.problem)
+  return { unregistered, staleExclusions, excludedButRun, invalidEntries }
+}
+
+const TASK = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/issues\/\d+$/
+
+/** Why an exclusion entry is not acceptable, or undefined when it is. */
+export function entryProblem(v) {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return 'must be an object { kind, reason }'
+  if (typeof v.reason !== 'string' || v.reason.trim().length < 10) return 'needs a reason of at least 10 characters'
+  if (v.kind === 'intentional') return undefined
+  if (v.kind !== 'temporary') return 'kind must be "intentional" or "temporary"'
+  if (typeof v.owner !== 'string' || !v.owner.trim()) return 'a temporary exclusion needs an owner'
+  if (typeof v.task !== 'string' || !TASK.test(v.task)) return 'a temporary exclusion needs a task link to a GitHub issue'
+  return undefined
 }
 
 export function collect(root) {
@@ -104,7 +124,7 @@ function main() {
   for (const f of r.unregistered) problems.push(`not run by CI and not excluded: ${f}`)
   for (const f of r.staleExclusions) problems.push(`exclusion matches no unregistered test file, remove it: ${f}`)
   for (const f of r.excludedButRun) problems.push(`excluded but also run by CI, remove the exclusion: ${f}`)
-  for (const f of r.emptyReasons) problems.push(`exclusion without a reason: ${f}`)
+  for (const e of r.invalidEntries) problems.push(`exclusion ${e.key}: ${e.problem}`)
   const missing = rootTestFiles.filter((f) => !existsSync(join(root, f)))
   for (const f of missing) problems.push(`root test script names a file that does not exist: ${f}`)
   const i = process.argv.indexOf('--executed')
@@ -119,6 +139,8 @@ function main() {
     console.error(problems.join('\n'))
     process.exit(1)
   }
+  const temporary = Object.entries(exclusions).filter(([k, v]) => !k.startsWith('$') && v?.kind === 'temporary')
+  for (const [k, v] of temporary) console.log(`temporary exclusion, owed: ${k} (${v.owner}, ${v.task})`)
   console.log('every tracked test file is run by CI or excluded with a reason')
 }
 
