@@ -1,0 +1,39 @@
+name: Lean model
+
+on:
+  push:
+    branches: [main]
+    paths: ['formal/lean/**', 'src/v2/authority-delegation/**', 'tests/v2/authority-lean-correspondence.test.ts', 'tests/v2/fixtures/lean-correspondence.json', '.github/workflows/lean.yml']
+  pull_request:
+    paths: ['formal/lean/**', 'src/v2/authority-delegation/**', 'tests/v2/authority-lean-correspondence.test.ts', 'tests/v2/fixtures/lean-correspondence.json', '.github/workflows/lean.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  lean:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: formal/lean
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: Install elan with the pinned toolchain
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -o elan-init.sh
+          sh elan-init.sh -y --default-toolchain "$(cat lean-toolchain)"
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+      - name: Build every module
+        run: lake build 2>&1 | tee build.log
+      - name: No sorry and no extra axioms
+        run: |
+          ! grep -nE "sorryAx|declaration uses 'sorry'" build.log
+          ! grep -rnE '^\s*(axiom|unsafe|@\[implemented_by)|^\s*.*:= *by native_decide' APSFormal --include='*.lean'
+          grep -h 'depends on axioms' build.log | grep -oE '\[[^]]*\]' | tr -d '[] ' | tr ',' '\n' | sort -u > axioms.txt
+          cat axioms.txt
+          ! grep -vxE 'propext|Quot.sound|Classical.choice' axioms.txt
+      - name: Corpus is up to date
+        run: |
+          lake env lean --run Vectors.lean > /tmp/lean-correspondence.json
+          diff -u ../../tests/v2/fixtures/lean-correspondence.json /tmp/lean-correspondence.json
