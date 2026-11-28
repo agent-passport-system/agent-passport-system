@@ -7,6 +7,7 @@ Expected values come from these deciders, each proved equal to its relation:
   within?      Scope.within?_iff      (list containment)
   irredundant? Scope.irredundant?_iff (no grant covers another in the same list)
   Spend.le?    Spend.le?_iff
+  validStep?   Authority.validStep?_iff (schema-admissible delegation steps)
 The one unproved piece is `sortedB`, the strict adjacent string order used as the
 sorting half of grantsAreCanonical. The string rendering of a grant is also a
 correspondence obligation, not a theorem.
@@ -19,6 +20,7 @@ the SDK agrees with the model on these cases, not on every input.
 import Lean.Data.Json
 import APSFormal.Scope
 import APSFormal.Spend
+import APSFormal.Authority
 
 open Lean APS
 
@@ -102,14 +104,47 @@ def spendCases : List Json :=
     Json.mkObj [("parent", spendJson parent), ("child", spendJson child),
       ("contained", Json.bool (Spend.le? child parent))]
 
+/-- The unchanged facets use the same decoded values as the signed TS chains. -/
+def stepRecord (remaining issuedAt notBefore notAfter : Nat) : Authority.Record :=
+  ⟨⟨⟨"aps-hierarchical-v1", [.sub ["commerce"]]⟩, .unbounded, ⟨remaining⟩,
+    ⟨notBefore, notAfter⟩, ⟨"aps-score-0-100-v1", 80⟩,
+    ⟨"aps-values-identifiers-v1", ["F-001", "F-003"]⟩,
+    ⟨"aps-tci-v1", .compensable⟩⟩, issuedAt⟩
+
+/-- TS renders each abstract instant n as 2026-07-18T22:00:NN.000Z, with
+NN zero-padded to two digits. All instants here are 8..22, so timestamp string
+order equals Nat order. The parent is issued at 10 with window [10,20).
+
+Empty/reversed child intervals are retained as schema-rejected cases (SCHEMA_INVALID),
+outside the ValidStep comparison. The Lean wire-domain guard Time.WellFormed rejects
+them too. ValidStep alone deliberately does not impose that guard. For every other
+case, expected is exactly validStep?, including not_before < issued_at, which TS
+also rejects as SCHEMA_INVALID. Repeated not_after choices are retained. -/
+def stepCases : List Json :=
+  [0, 1, 2, 3].flatMap fun parentDepth =>
+  [0, 1, 2, 3].flatMap fun childDepth =>
+  [9, 10, 15, 19, 20].flatMap fun issuedAt =>
+  [issuedAt - 1, issuedAt, issuedAt + 1].flatMap fun notBefore =>
+  [notBefore + 1, 20, 21].map fun notAfter =>
+    let parent := stepRecord parentDepth 10 10 20
+    let child := stepRecord childDepth issuedAt notBefore notAfter
+    -- Unfold Time.WellFormed explicitly so the executable Nat decider is available.
+    let wellFormed := decide (child.authority.time.not_before < child.authority.time.not_after)
+    Json.mkObj [("parent_remaining", toJson parentDepth),
+      ("child_remaining", toJson childDepth), ("issued_at", toJson issuedAt),
+      ("not_before", toJson notBefore), ("not_after", toJson notAfter),
+      ("schema_rejected", Json.bool (!wellFormed)),
+      ("expected", Json.bool (wellFormed && Authority.validStep? parent child))]
+
 end Gen
 
 def main : IO Unit := do
   let out := Json.mkObj [
     ("generator", "formal/lean/Vectors.lean"),
-    ("note", "Expected values come from deciders proved equal to their relations in APSFormal (covers?, within?, irredundant?, Spend.le?), except the string sort check. Exhaustive over a small universe, not a proof about the TypeScript code."),
+    ("note", "Expected values come from deciders proved equal to their relations in APSFormal (covers?, within?, irredundant?, Spend.le?, Authority.validStep?), except the string sort check. Step intervals failing Time.WellFormed are marked schema_rejected and expected false (TS SCHEMA_INVALID), outside ValidStep comparison. Exhaustive over a small universe, not a proof about the TypeScript code."),
     ("scope_covers", Json.arr Gen.coversCases.toArray),
     ("scope_canonical", Json.arr Gen.canonicalCases.toArray),
     ("scope_narrows", Json.arr Gen.narrowsCases.toArray),
-    ("spend", Json.arr Gen.spendCases.toArray)]
+    ("spend", Json.arr Gen.spendCases.toArray),
+    ("step", Json.arr Gen.stepCases.toArray)]
   IO.println out.compress

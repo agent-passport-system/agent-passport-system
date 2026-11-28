@@ -9,19 +9,33 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { publicKeyFromPrivate } from '../../src/crypto/keys.js'
 import {
+  AUTHORITY_DELEGATION_RECORD_TYPE,
+  AUTHORITY_DELEGATION_VERSION,
   REPUTATION_PROFILE_V1,
   REVERSIBILITY_PROFILE_V1,
   SCOPE_PROFILE_V1,
   VALUES_PROFILE_V1,
   compareAuthority,
+  computeAuthorityDelegationId,
   grantsAreCanonical,
+  issueAuthorityDelegation,
   scopeGrantCovers,
   scopeNarrows,
+  signAuthorityDelegation,
+  verifyAuthorityDelegationChain,
+  verifyAuthorityDelegationSignature,
 } from '../../src/v2/authority-delegation/index.js'
-import type { AuthorityVectorV1, SpendFacetV1 } from '../../src/v2/authority-delegation/index.js'
+import type {
+  AuthorityDelegationBodyV1,
+  AuthorityDelegationV1,
+  AuthorityVectorV1,
+  SpendFacetV1,
+} from '../../src/v2/authority-delegation/index.js'
 
-const corpus = JSON.parse(readFileSync(new URL('./fixtures/lean-correspondence.json', import.meta.url), 'utf8'))
+const fixture = readFileSync(new URL('./fixtures/lean-correspondence.json', import.meta.url), 'utf8')
+const corpus = JSON.parse(fixture)
 
 function vector(spend: SpendFacetV1, remaining: number): AuthorityVectorV1 {
   return {
@@ -37,7 +51,8 @@ function vector(spend: SpendFacetV1, remaining: number): AuthorityVectorV1 {
 
 test('lean corpus is present and non-trivial', () => {
   assert.equal(corpus.generator, 'formal/lean/Vectors.lean')
-  for (const key of ['scope_covers', 'scope_canonical', 'scope_narrows', 'spend']) {
+  assert.ok(Buffer.byteLength(fixture) < 2_000_000, 'compact fixture stays under 2 MB')
+  for (const key of ['scope_covers', 'scope_canonical', 'scope_narrows', 'spend', 'step']) {
     assert.ok(Array.isArray(corpus[key]) && corpus[key].length > 0, key)
     assert.ok(corpus[key].some((c: Record<string, unknown>) => Object.values(c).includes(true)), `${key} has a true case`)
     assert.ok(corpus[key].some((c: Record<string, unknown>) => Object.values(c).includes(false)), `${key} has a false case`)
@@ -71,4 +86,119 @@ test('compareAuthority spend branch agrees with APS.Spend.Le', () => {
     return (failures.length === 0) !== c.contained
   })
   assert.deepEqual(bad, [])
+})
+
+interface StepCase {
+  parent_remaining: number
+  child_remaining: number
+  issued_at: number
+  not_before: number
+  not_after: number
+  schema_rejected: boolean
+  expected: boolean
+}
+
+// The Lean instants are seconds in one minute, padded to two digits. This preserves
+// numeric order as canonical timestamp string order, including the half-open endpoints.
+function stepTimestamp(instant: number): string {
+  assert.ok(Number.isInteger(instant) && instant >= 0 && instant < 60)
+  return `2026-07-18T22:00:${String(instant).padStart(2, '0')}.000Z`
+}
+
+test('signed two-record chains agree with APS.Authority.ValidStep', t => {
+  // Public deterministic test seeds, never operational signing keys.
+  const rootSeed = '000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f'
+  const childSeed = '1f1e1d1c1b1a191817161514131211100f0e0d0c0b0a09080706050403020100'
+  const rootKey = publicKeyFromPrivate(rootSeed)
+  const childKey = publicKeyFromPrivate(childSeed)
+  const allowedCodes = new Set([
+    'DEPTH_EXHAUSTED', 'DEPTH_WIDENING', 'ISSUED_AT_OUTSIDE_PARENT',
+    'TIME_WIDENING', 'SCHEMA_INVALID',
+  ])
+  const cases: StepCase[] = corpus.step
+  assert.equal(cases.length, 4 * 4 * 5 * 3 * 3)
+  const bad: unknown[] = []
+  const tally = { total: 0, valid: 0, invalid: 0, schemaRejectedIntervals: 0, overlappingWindows: 0 }
+  const firstFailureCodes: Record<string, number> = {}
+  const failureCodes: Record<string, number> = {}
+  for (const c of cases) {
+    const rootAuthority = vector({ mode: 'unbounded' }, c.parent_remaining)
+    rootAuthority.time = { not_before: stepTimestamp(10), not_after: stepTimestamp(20) }
+    const root = issueAuthorityDelegation({
+      record_type: AUTHORITY_DELEGATION_RECORD_TYPE,
+      version: AUTHORITY_DELEGATION_VERSION,
+      parent_delegation_id: null,
+      issuer: 'did:example:root',
+      subject: 'did:example:agent-a',
+      verification_method: 'did:example:root#key-1',
+      issued_at: stepTimestamp(10),
+      nonce: '00112233445566778899aabbccddeeff',
+      authority: rootAuthority,
+    }, rootSeed)
+    const childAuthority = vector({ mode: 'unbounded' }, c.child_remaining)
+    childAuthority.time = {
+      not_before: stepTimestamp(c.not_before), not_after: stepTimestamp(c.not_after),
+    }
+    const body: AuthorityDelegationBodyV1 = {
+      record_type: AUTHORITY_DELEGATION_RECORD_TYPE,
+      version: AUTHORITY_DELEGATION_VERSION,
+      parent_delegation_id: root.delegation_id,
+      issuer: root.subject,
+      subject: 'did:example:agent-b',
+      verification_method: `${root.subject}#key-1`,
+      issued_at: stepTimestamp(c.issued_at),
+      nonce: '102132435465768798a9bacbdcedfe0f',
+      authority: childAuthority,
+    }
+    // issueSubAuthorityDelegation refuses invalid children before signing. Build and
+    // sign every child through the canonical helpers so the verifier judges the chain.
+    const unsigned = { ...body, delegation_id: computeAuthorityDelegationId(body) }
+    const child: AuthorityDelegationV1 = {
+      ...unsigned, signature: signAuthorityDelegation(unsigned, childSeed),
+    }
+    // Schema-rejected chains never reach signature verification inside the chain
+    // verifier. Check both signatures here too, so every tested pair is signed.
+    assert.ok(verifyAuthorityDelegationSignature(root, rootKey))
+    assert.ok(verifyAuthorityDelegationSignature(child, childKey))
+
+    const lower = Math.max(10, c.not_before)
+    const upper = Math.min(20, c.not_after)
+    const overlaps = lower < upper
+    // The inclusive lower endpoint lies inside both half-open windows when they
+    // overlap. Otherwise step/schema failures must decide before current validity.
+    const now = stepTimestamp(overlaps ? lower : 10)
+    const checked = verifyAuthorityDelegationChain([root, child], {
+      now,
+      resolveVerificationKey: (issuer, method) =>
+        issuer === root.issuer && method === root.verification_method ? rootKey
+          : issuer === child.issuer && method === child.verification_method ? childKey : null,
+      trustRoot: candidate => candidate.delegation_id === root.delegation_id,
+      resolveRevocation: () => 'active',
+    })
+    tally.total++
+    tally[checked.valid ? 'valid' : 'invalid']++
+    if (overlaps) tally.overlappingWindows++
+    if (c.schema_rejected) tally.schemaRejectedIntervals++
+    if (checked.failures[0]) {
+      const code = checked.failures[0].code
+      firstFailureCodes[code] = (firstFailureCodes[code] ?? 0) + 1
+    }
+    for (const failure of checked.failures) {
+      failureCodes[failure.code] = (failureCodes[failure.code] ?? 0) + 1
+    }
+    if (checked.valid !== c.expected ||
+        checked.state !== (c.expected ? 'valid' : 'invalid') ||
+        (checked.valid && checked.failures.length !== 0) ||
+        (!checked.valid && (checked.failures.length === 0 ||
+          checked.failures.some(f => !allowedCodes.has(f.code) || f.index !== 1))) ||
+        c.schema_rejected !== (c.not_before >= c.not_after) ||
+        (c.schema_rejected && (c.expected ||
+          !checked.failures.some(f => f.code === 'SCHEMA_INVALID')))) {
+      bad.push({ case: c, now, checked })
+    }
+  }
+  t.diagnostic(JSON.stringify({ ...tally, firstFailureCodes, failureCodes, disagreements: bad.length }))
+  assert.ok(tally.valid > 0 && tally.invalid > 0 && tally.schemaRejectedIntervals > 0)
+  for (const code of allowedCodes) assert.ok(failureCodes[code] > 0, `${code} is exercised`)
+  assert.deepEqual(bad, [], 'disagreements are findings, not grounds to change the Lean relation')
 })

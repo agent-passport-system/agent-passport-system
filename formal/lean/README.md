@@ -19,6 +19,7 @@ than `propext`, `Quot.sound` and `Classical.choice`.
 | `APSFormal/Spend.lean` | spend (`unbounded`, bounded unit and two limits) | partial order, unbounded is greatest, unit change is incomparable |
 | `APSFormal/Facets.lean` | depth, time, reputation, values, reversibility | each is a partial order. Depth containment is reflexive and kept apart from the strict delegation step, and an identical depth cannot be delegated |
 | `APSFormal/Authority.lean` | the seven-facet vector, one step, chains | containment is a partial order (antisymmetric on canonical vectors). A valid step implies containment, and no record is a valid step from itself. In a valid chain every record is contained in every ancestor, depth falls at least one per hop, and a chain has at most 256 records, a bound a 256-record chain reaches |
+| `APSFormal/Revocation.lean` | current validity and revocation of every member | the verifier result is valid exactly when the structural phases pass and every member is current and active. A revoked or unknown member anywhere means never valid, though the reported code can be an earlier failure or REVOCATION_UNKNOWN rather than REVOKED |
 
 Each file has a DISAGREEMENTS block that records where the TypeScript code or the
 draft text differs from the model. A disagreement is recorded, not resolved by
@@ -27,13 +28,15 @@ changing the model to match the code.
 ## What is not modelled
 
 Wire decoding (string splitting, decimal quantities, timestamp syntax) is outside the
-model. Signatures, chain linkage, revocation, the spend ledger and action admission
-are later cases.
+model. Signatures, identifiers and parent linkage are abstracted. The spend ledger and
+action admission are later cases.
 
 ## Correspondence with the TypeScript code
 
 `Vectors.lean` uses the executable deciders, each proved equal to its declarative
-relation, to generate `tests/v2/fixtures/lean-correspondence.json`. The test
+relation, to generate `tests/v2/fixtures/lean-correspondence.json`, including 720
+two-record step cases that the test signs and runs through
+`verifyAuthorityDelegationChain`. The test
 `tests/v2/authority-lean-correspondence.test.ts` runs the SDK on every case. The
 corpus covers a small universe exhaustively. A pass means the SDK and the model agree
 on those cases, not that they agree on every input.

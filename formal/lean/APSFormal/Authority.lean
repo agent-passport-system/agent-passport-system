@@ -244,6 +244,29 @@ theorem chain_length_tight :
   ⟨witnessChain 255, witnessChain_valid 255, witnessChain_length 255,
     witnessRecord 255, witnessChain 254, rfl, by simp [Depth.WellFormed, witnessRecord, witnessAuthority]⟩
 
+/-- Executable valid-step check on decoded records. Like ValidStep, this does not
+check interval well-formedness, signatures, linkage, current validity or revocation. -/
+def validStep? (parent child : Record) : Bool :=
+  (decide (child.authority.scope.profile = parent.authority.scope.profile) &&
+    Scope.within? child.authority.scope.grants parent.authority.scope.grants &&
+    Spend.le? child.authority.spend parent.authority.spend &&
+    Time.le? child.authority.time parent.authority.time &&
+    Reputation.le? child.authority.reputation parent.authority.reputation &&
+    Values.le? child.authority.values parent.authority.values &&
+    Reversibility.le? child.authority.reversibility parent.authority.reversibility) &&
+  decide (0 < parent.authority.depth.remaining ∧
+    child.authority.depth.remaining + 1 ≤ parent.authority.depth.remaining) &&
+  decide (child.issuedAt ≤ child.authority.time.not_before) &&
+  decide (parent.authority.time.not_before ≤ child.issuedAt) &&
+  decide (child.issuedAt < parent.authority.time.not_after)
+
+theorem validStep?_iff (parent child : Record) :
+    validStep? parent child = true ↔ ValidStep parent child := by
+  simp only [validStep?, Bool.and_eq_true, decide_eq_true_eq,
+    Scope.within?_iff, Spend.le?_iff, Time.le?_iff, Reputation.le?_iff,
+    Values.le?_iff, Reversibility.le?_iff, ValidStep, LeExceptDepth, Step.DepthStep,
+    and_assoc]
+
 end APS.Authority
 
 #print axioms APS.Authority.le_refl
@@ -257,3 +280,4 @@ end APS.Authority
 #print axioms APS.Authority.chain_depth
 #print axioms APS.Authority.chain_length_le
 #print axioms APS.Authority.chain_length_tight
+#print axioms APS.Authority.validStep?_iff
