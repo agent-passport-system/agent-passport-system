@@ -52,7 +52,7 @@ This skill tracks the protocol. It is version-bumped in `_meta.json` on the same
 - 6,289 tests in the 8.0.0 release
 - 154 MCP tools expose the full protocol surface, and the `full` profile is the default
 - 9 papers, all with Zenodo DOIs
-- SDK 8.1.1 on npm, MCP 8.1.1 on npm, Python 4.3.0 on PyPI, Rust 0.3.0 on crates.io, Go v0.7.0
+- SDK 8.2.0 on npm, MCP 8.1.2 on npm, Python 4.3.0 on PyPI, Rust 0.3.0 on crates.io, Go v0.7.0
 - Apache-2.0
 
 ## Links
