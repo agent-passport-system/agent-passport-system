@@ -333,8 +333,9 @@ theorem fresh_reserved_counters {lim : Id → Limit} {L : Ledger} {r : Ref} {uni
   | some e => rw [hc] at h; exact absurd h (limitCheck_not_reserved hc)
   | none => rfl
 
-/-- 3. A successful reserve adds the amount to every bounded ancestor counter and
-changes no other counter. -/
+/-- 3. A reserve that newly reserves (code `reserved`) adds the amount to every bounded
+ancestor counter and changes no other counter. An idempotent retry is also counted as
+success by `succeeded` but changes nothing. -/
 theorem reserve_all_or_none (lim : Id → Limit) (L : Ledger) (r : Ref) (unit : String)
     (amount : Nat) (ids : List Id) (h : (reserve lim L r unit amount ids).1 = .reserved) :
     (reserve lim L r unit amount ids).2.counters = addReserved L.counters ids amount := by
@@ -660,7 +661,8 @@ theorem reachable_cancel (lim : Id → Limit) (ops : List Op) (r : Ref) (p : Res
   have hh := reachable_holds lim ops r p hp (Or.inl hs)
   simp [cancel, hp, hs, hh]
 
-/-- A successful commit moves the amount on every ancestor and no other counter. -/
+/-- A newly completed commit (code `committed`, not an idempotent retry) moves the amount
+on every ancestor and no other counter. -/
 theorem commit_all_or_none (L : Ledger) (r : Ref) (p : Reservation)
     (hp : L.res r = some p) (h : (commit L r).1 = .committed) :
     (commit L r).2.counters = moveCommitted L.counters p.ids p.amount := by
@@ -669,7 +671,8 @@ theorem commit_all_or_none (L : Ledger) (r : Ref) (p : Reservation)
   repeat' split
   all_goals simp_all
 
-/-- A successful cancel releases the amount on every ancestor and no other counter. -/
+/-- A newly completed cancel (code `cancelled`, not an idempotent retry) releases the
+amount on every ancestor and no other counter. -/
 theorem cancel_all_or_none (L : Ledger) (r : Ref) (p : Reservation)
     (hp : L.res r = some p) (h : (cancel L r).1 = .cancelled) :
     (cancel L r).2.counters = release L.counters p.ids p.amount := by
@@ -691,6 +694,37 @@ theorem run_refs_mono (lim : Id → Limit) : ∀ (L : Ledger) (ops : List Op) (r
     r ∈ L.refs → r ∈ (run lim L ops).refs
   | _, [], _, h => h
   | L, o :: os, r, h => run_refs_mono lim _ os r (step_refs_mono lim L o r h)
+
+/-- Budget ceiling and accounting consistency on the same reachable ledgers: the F7a
+ceiling and the F7b accounting equalities hold together for every operation sequence
+from empty, under the same fixed limits and the same `step`. -/
+theorem ledger_safe (lim : Id → Limit) (ops : List Op) :
+    Accounting (run lim empty ops) ∧
+      ∀ d, ((run lim empty ops).counters d).reserved + ((run lim empty ops).counters d).committed
+        ≤ (lim d).cumulative :=
+  ⟨conservation lim ops, fun d => ceiling lim ops d⟩
+
+/-- A newly completed commit keeps charged capacity, reserved plus committed, unchanged at
+every delegation id. The subtraction in `moveCommitted` never truncates, because commit
+only completes when the reservation's amount is held at each of its ancestors. -/
+theorem commit_preserves_charged (L : Ledger) (r : Ref) (p : Reservation)
+    (hp : L.res r = some p) (h : (commit L r).1 = .committed) (d : Id) :
+    ((commit L r).2.counters d).reserved + ((commit L r).2.counters d).committed
+      = (L.counters d).reserved + (L.counters d).committed := by
+  have hh : holds L.counters p = true := by
+    cases hb : holds L.counters p
+    · unfold commit at h
+      simp only [hp] at h
+      repeat' split at h
+      all_goals simp_all
+    · rfl
+  rw [commit_all_or_none L r p hp h]
+  unfold moveCommitted
+  by_cases hd : d ∈ p.ids
+  · have hle := holds_true hh d hd
+    simp only [hd, if_true]
+    omega
+  · simp [hd]
 
 end APS.Ledger
 
@@ -774,3 +808,7 @@ end APS.Ledger
 #print axioms APS.Ledger.step_refs_mono
 
 #print axioms APS.Ledger.run_refs_mono
+
+#print axioms APS.Ledger.ledger_safe
+
+#print axioms APS.Ledger.commit_preserves_charged

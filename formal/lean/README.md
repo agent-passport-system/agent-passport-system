@@ -43,8 +43,41 @@ not resolved by changing the model to match the code.
   ceiling, which the implementation reports as indeterminate when exceeded. The two
   happen to be equal.
 - Wire decoding (string splitting, decimal quantities, timestamp syntax and order),
-  signatures, identifiers and parent linkage are outside the model. The spend ledger
-  and action admission are later cases.
+  signatures, identifiers and parent linkage are outside the model. Action admission
+  is a later case.
+
+## Spend ledger (`Ledger.lean`)
+
+Proved for every sequence of reserve, dispatch, commit and cancel calls from an empty
+ledger, under one fixed limit table (`ledger_safe`):
+
+- Budget ceiling: at every delegation id, reserved plus committed stays at or below the
+  cumulative limit (`ceiling`).
+- Accounting consistency: each id's reserved counter equals the sum of its reserved and
+  dispatched reservations, and its committed counter equals the sum of its committed
+  ones (`conservation`). This is what "conservation" names in the file. It is not itself
+  a budget ceiling, which is the theorem above.
+- A failed call changes nothing (`step_fail`). A newly completed reserve, commit or cancel
+  changes exactly the reservation's ancestors (`reserve_all_or_none`,
+  `commit_all_or_none`, `cancel_all_or_none`). Commit keeps reserved plus committed
+  unchanged (`commit_preserves_charged`). The natural-number subtraction in commit and
+  cancel never truncates on a reachable ledger (`reachable_holds`).
+
+What the ledger proofs do not establish:
+
+- That the ids passed to reserve are the right ones. The model charges the list it is
+  given. Omitting a governing ancestor keeps both invariants true while that ancestor goes
+  uncharged. The SDK derives the list from a verified chain, and that step is outside the
+  model.
+- The SDK's quantity domain. Amounts are unbounded naturals here, where the SDK accepts
+  canonical decimals up to 2^63 - 1.
+- Behaviour on a ledger that was not built by these calls. Counters always exist in the
+  model, while the SDK keeps them in a map and rejects a missing entry. Restore, import or
+  external corruption is outside the model.
+- Releasing a dispatched reservation on trusted evidence that it was never executed.
+  Draft-04 section 4.4 allows it. Neither the SDK nor the model exposes that transition.
+- Anything beyond one sequential ledger: distributed linearizability, persistence, crash
+  recovery, approval consumption or exactly-once execution of the external effect.
 
 ## Correspondence with the TypeScript code
 
