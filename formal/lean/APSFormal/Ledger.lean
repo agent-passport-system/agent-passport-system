@@ -1,5 +1,5 @@
 /-
-APS formal model, F7a: the cumulative spend ledger.
+APS formal model, F7a/F7b: the cumulative spend ledger.
 
 Mirrors agent-passport-system src/v2/authority-delegation/budget.ts
 InMemoryAuthorityBudgetLedger (reserve, markDispatched, commit, cancel) and
@@ -63,8 +63,13 @@ structure Reservation where
 structure Ledger where
   counters : Id → Counter
   res : Ref → Option Reservation
+  refs : List Ref
 
-def empty : Ledger := ⟨fun _ => ⟨0, 0⟩, fun _ => none⟩
+/-- Insert once. Historical refs remain after cancellation and settlement. -/
+def remember (r : Ref) (refs : List Ref) : List Ref :=
+  if r ∈ refs then refs else r :: refs
+
+def empty : Ledger := ⟨fun _ => ⟨0, 0⟩, fun _ => none, []⟩
 
 inductive Code where
   | reserved | idempotent | conflict | unitMismatch | perActionExceeded
@@ -99,7 +104,7 @@ def fresh (lim : Id → Limit) (L : Ledger) (r : Ref) (unit : String) (amount : 
   match limitCheck lim L.counters unit amount ids with
   | some e => (e, L)
   | none => (.reserved, ⟨addReserved L.counters ids amount,
-      setRes L.res r ⟨unit, amount, ids, .reserved⟩⟩)
+      setRes L.res r ⟨unit, amount, ids, .reserved⟩, remember r L.refs⟩)
 
 def reserve (lim : Id → Limit) (L : Ledger) (r : Ref) (unit : String) (amount : Nat)
     (ids : List Id) : Code × Ledger :=
@@ -117,7 +122,7 @@ def dispatch (L : Ledger) (r : Ref) : Code × Ledger :=
   | some p =>
       if p.state = .dispatched then (.idempotent, L)
       else if p.state ≠ .reserved then (.invalidState, L)
-      else (.dispatched, ⟨L.counters, setRes L.res r { p with state := .dispatched }⟩)
+      else (.dispatched, ⟨L.counters, setRes L.res r { p with state := .dispatched }, remember r L.refs⟩)
 
 /-- Every ancestor counter still holds the reserved amount. -/
 def holds (c : Id → Counter) (p : Reservation) : Bool :=
@@ -137,7 +142,7 @@ def commit (L : Ledger) (r : Ref) : Code × Ledger :=
       else if p.state ≠ .reserved ∧ p.state ≠ .dispatched then (.invalidState, L)
       else if holds L.counters p = false then (.invalidState, L)
       else (.committed, ⟨moveCommitted L.counters p.ids p.amount,
-        setRes L.res r { p with state := .committed }⟩)
+        setRes L.res r { p with state := .committed }, remember r L.refs⟩)
 
 def cancel (L : Ledger) (r : Ref) : Code × Ledger :=
   match L.res r with
@@ -147,7 +152,7 @@ def cancel (L : Ledger) (r : Ref) : Code × Ledger :=
       else if p.state ≠ .reserved then (.invalidState, L)
       else if holds L.counters p = false then (.invalidState, L)
       else (.cancelled, ⟨release L.counters p.ids p.amount,
-        setRes L.res r { p with state := .cancelled }⟩)
+        setRes L.res r { p with state := .cancelled }, remember r L.refs⟩)
 
 /-! ### 1. The ceiling invariant -/
 
@@ -378,6 +383,315 @@ theorem reserve_same_footprint (lim : Id → Limit) (L : Ledger) (r : Ref) (unit
   · simp [hf, succeeded] at h
   · rfl
 
+/-! ### 6. Finite accounting, F7b
+
+Contribution brief. The ceiling alone permits ghost counters, so it does not show
+that a live reservation can settle. Track each historical ref once, sum the current
+map entries, and preserve exact accounting through each transition. This extends
+Claude's F7a model in the lane assigned by Tima. No SDK or wire-validation change
+is made here. Validation is kernel checking with Lean 4.14.0, without Mathlib.
+-/
+
+/-- Sum a contribution from the current reservation at each historical ref. -/
+def total (refs : List Ref) (f : Ref → Option Reservation)
+    (weight : Option Reservation → Nat) : Nat :=
+  match refs with
+  | [] => 0
+  | r :: rs => weight (f r) + total rs f weight
+
+/-- A live reservation holds its amount at each bounded ancestor, including zero. -/
+def reservedWeight (d : Id) : Option Reservation → Nat
+  | none => 0
+  | some p => if d ∈ p.ids ∧ (p.state = .reserved ∨ p.state = .dispatched)
+      then p.amount else 0
+
+/-- Only settled reservations contribute to committed spend. -/
+def committedWeight (d : Id) : Option Reservation → Nat
+  | none => 0
+  | some p => if d ∈ p.ids ∧ p.state = .committed then p.amount else 0
+
+/-- The carrier is unique and complete, and both counters equal their map sums. -/
+structure Accounting (L : Ledger) : Prop where
+  unique : L.refs.Nodup
+  complete : ∀ r p, L.res r = some p → r ∈ L.refs
+  reserved : ∀ d, (L.counters d).reserved = total L.refs L.res (reservedWeight d)
+  committed : ∀ d, (L.counters d).committed = total L.refs L.res (committedWeight d)
+
+theorem remember_mem (r x : Ref) (rs : List Ref) :
+    x ∈ remember r rs ↔ x = r ∨ x ∈ rs := by
+  unfold remember
+  split <;> simp_all [List.mem_cons]
+
+theorem remember_unique (r : Ref) (rs : List Ref) (h : rs.Nodup) :
+    (remember r rs).Nodup := by
+  unfold remember
+  split <;> simp_all
+
+theorem total_outside (rs : List Ref) (f : Ref → Option Reservation)
+    (w : Option Reservation → Nat) (r : Ref) (p : Reservation) (h : r ∉ rs) :
+    total rs (setRes f r p) w = total rs f w := by
+  induction rs with
+  | nil => rfl
+  | cons x xs ih =>
+    simp only [List.mem_cons, not_or] at h
+    simp [total, setRes, Ne.symm h.1, ih h.2]
+
+/-- Replacing one entry changes a finite sum by exactly that entry's contribution.
+The additive form avoids truncated subtraction in the bookkeeping lemma. -/
+theorem total_replace (rs : List Ref) (f : Ref → Option Reservation)
+    (w : Option Reservation → Nat) (r : Ref) (p : Reservation)
+    (hn : rs.Nodup) (hr : r ∈ rs) :
+    total rs (setRes f r p) w + w (f r) = total rs f w + w (some p) := by
+  induction rs with
+  | nil => simp at hr
+  | cons x xs ih =>
+    have hnx := List.nodup_cons.mp hn
+    rcases List.mem_cons.mp hr with he | he
+    · subst x
+      simp [total, setRes, total_outside xs f w r p hnx.1, Nat.add_comm, Nat.add_left_comm, Nat.add_assoc]
+    · by_cases hx : x = r
+      · subst x
+        exact False.elim (hnx.1 he)
+      · have hi := ih hnx.2 he
+        simp only [total, setRes, if_neg hx]
+        simp only [setRes] at hi
+        omega
+
+theorem total_remember_replace (L : Ledger) (h : Accounting L)
+    (w : Option Reservation → Nat) (hw : w none = 0) (r : Ref) (p : Reservation) :
+    total (remember r L.refs) (setRes L.res r p) w + w (L.res r) =
+      total L.refs L.res w + w (some p) := by
+  unfold remember
+  split
+  · exact total_replace L.refs L.res w r p h.unique (by assumption)
+  · rename_i hr
+    have hf : L.res r = none := by
+      cases he : L.res r with
+      | none => rfl
+      | some q => exact False.elim (hr (h.complete r q he))
+    simp [total, setRes, total_outside L.refs L.res w r p hr, hf, hw, Nat.add_comm]
+
+/-- One map replacement preserves accounting when the counters make the same move. -/
+theorem accounting_write (L : Ledger) (h : Accounting L) (r : Ref) (p : Reservation)
+    (c : Id → Counter)
+    (hr : ∀ d, (c d).reserved + reservedWeight d (L.res r) =
+      (L.counters d).reserved + reservedWeight d (some p))
+    (hc : ∀ d, (c d).committed + committedWeight d (L.res r) =
+      (L.counters d).committed + committedWeight d (some p)) :
+    Accounting ⟨c, setRes L.res r p, remember r L.refs⟩ := by
+  refine ⟨remember_unique r L.refs h.unique, ?_, ?_, ?_⟩
+  · intro x q hx
+    apply (remember_mem r x L.refs).2
+    by_cases he : x = r
+    · exact Or.inl he
+    · exact Or.inr (h.complete x q (by simpa [setRes, he] using hx))
+  · intro d
+    have ht := total_remember_replace L h (reservedWeight d) rfl r p
+    have hh := hr d
+    rw [← h.reserved d] at ht
+    dsimp only
+    omega
+  · intro d
+    have ht := total_remember_replace L h (committedWeight d) rfl r p
+    have hh := hc d
+    rw [← h.committed d] at ht
+    dsimp only
+    omega
+
+theorem accounting_empty : Accounting empty := by
+  constructor <;> simp [empty, total]
+
+/-- Fresh reserve is used only for an absent or cancelled map entry. -/
+theorem fresh_accounting (lim : Id → Limit) (L : Ledger) (h : Accounting L)
+    (r : Ref) (u : String) (a : Nat) (ids : List Id)
+    (hp : L.res r = none ∨ ∃ p, L.res r = some p ∧ p.state = .cancelled) :
+    Accounting (fresh lim L r u a ids).2 := by
+  unfold fresh
+  split
+  · exact h
+  · apply accounting_write L h
+    · intro d
+      rcases hp with he | ⟨p, he, hs⟩ <;>
+        simp_all [reservedWeight, addReserved] <;> split <;> simp_all
+    · intro d
+      rcases hp with he | ⟨p, he, hs⟩ <;>
+        simp_all [committedWeight, addReserved] <;> split <;> simp_all
+
+theorem reserve_accounting (lim : Id → Limit) (L : Ledger) (h : Accounting L)
+    (r : Ref) (u : String) (a : Nat) (ids : List Id) :
+    Accounting (reserve lim L r u a ids).2 := by
+  unfold reserve
+  split; · exact h
+  split
+  · rename_i p hp
+    split; · exact h
+    split
+    · exact fresh_accounting lim L h r u a ids (Or.inr ⟨p, hp, by assumption⟩)
+    · exact h
+  · exact fresh_accounting lim L h r u a ids (Or.inl (by assumption))
+
+theorem dispatch_accounting (L : Ledger) (h : Accounting L) (r : Ref) :
+    Accounting (dispatch L r).2 := by
+  unfold dispatch
+  split; · exact h
+  rename_i p hp
+  split; · exact h
+  split; · exact h
+  rename_i hs
+  have hs' : p.state = .reserved := by simpa using hs
+  apply accounting_write L h <;> intro d <;>
+    simp [hp, reservedWeight, committedWeight, hs']
+
+theorem commit_accounting (L : Ledger) (h : Accounting L) (r : Ref) :
+    Accounting (commit L r).2 := by
+  unfold commit
+  split; · exact h
+  rename_i p hp
+  split; · exact h
+  split; · exact h
+  rename_i hs
+  split; · exact h
+  rename_i hh
+  have live : p.state = .reserved ∨ p.state = .dispatched := by
+    cases he : p.state <;> simp_all
+  have held : holds L.counters p = true := by simpa using hh
+  apply accounting_write L h
+  · intro d
+    by_cases hd : d ∈ p.ids
+    · have ha := holds_true held d hd
+      simp only [moveCommitted, hd, if_true, hp, reservedWeight, live, and_self]
+      simp only [if_true, reduceCtorEq, or_self, and_false, if_false]
+      omega
+    · simp [moveCommitted, hd, hp, reservedWeight]
+  · intro d
+    rcases live with hs | hs <;>
+      simp [moveCommitted, hp, committedWeight, hs] <;> split <;> simp_all
+
+theorem cancel_accounting (L : Ledger) (h : Accounting L) (r : Ref) :
+    Accounting (cancel L r).2 := by
+  unfold cancel
+  split; · exact h
+  rename_i p hp
+  split; · exact h
+  split; · exact h
+  rename_i hs
+  split; · exact h
+  rename_i hh
+  have hs' : p.state = .reserved := by simpa using hs
+  have held : holds L.counters p = true := by simpa using hh
+  apply accounting_write L h
+  · intro d
+    by_cases hd : d ∈ p.ids
+    · have ha := holds_true held d hd
+      simp [release, hd, hp, reservedWeight, hs']
+      omega
+    · simp [release, hd, hp, reservedWeight]
+  · intro d
+    simp [release, hp, committedWeight, hs'] <;> split <;> rfl
+
+theorem step_accounting (lim : Id → Limit) (L : Ledger) (o : Op) (h : Accounting L) :
+    Accounting (step lim L o).2 := by
+  cases o with
+  | reserve r u a ids => exact reserve_accounting lim L h r u a ids
+  | dispatch r => exact dispatch_accounting L h r
+  | commit r => exact commit_accounting L h r
+  | cancel r => exact cancel_accounting L h r
+
+theorem run_accounting (lim : Id → Limit) : ∀ (L : Ledger) (ops : List Op),
+    Accounting L → Accounting (run lim L ops)
+  | _, [], h => h
+  | L, o :: os, h => run_accounting lim _ os (step_accounting lim L o h)
+
+/-- Exact conservation, including carrier uniqueness and completeness, for every
+operation sequence from empty. No well-formedness hypothesis on the operations. -/
+theorem conservation (lim : Id → Limit) (ops : List Op) :
+    Accounting (run lim empty ops) :=
+  run_accounting lim empty ops accounting_empty
+
+/-- The requested two equalities, explicitly at every delegation id. -/
+theorem conservation_counters (lim : Id → Limit) (ops : List Op) (d : Id) :
+    let L := run lim empty ops
+    (L.counters d).reserved = total L.refs L.res (reservedWeight d) ∧
+    (L.counters d).committed = total L.refs L.res (committedWeight d) :=
+  ⟨(conservation lim ops).reserved d, (conservation lim ops).committed d⟩
+
+/-- Every summand is bounded by the whole nonnegative finite sum. -/
+theorem total_member_le (rs : List Ref) (f : Ref → Option Reservation)
+    (w : Option Reservation → Nat) (r : Ref) (hr : r ∈ rs) :
+    w (f r) ≤ total rs f w := by
+  induction rs with
+  | nil => simp at hr
+  | cons x xs ih =>
+    rcases List.mem_cons.mp hr with he | he
+    · subst x; simp [total]
+    · have hi := ih he
+      simp only [total]
+      omega
+
+/-- Accounting rules out the insufficient-counter branch for any live entry. -/
+theorem accounting_holds (L : Ledger) (h : Accounting L) (r : Ref) (p : Reservation)
+    (hp : L.res r = some p) (live : p.state = .reserved ∨ p.state = .dispatched) :
+    holds L.counters p = true := by
+  simp only [holds, List.all_eq_true, decide_eq_true_eq]
+  intro d hd
+  have ht := total_member_le L.refs L.res (reservedWeight d) r (h.complete r p hp)
+  rw [← h.reserved d] at ht
+  simpa [hp, reservedWeight, hd, live] using ht
+
+/-- From empty, every reserved or dispatched reservation passes the holds check. -/
+theorem reachable_holds (lim : Id → Limit) (ops : List Op) (r : Ref) (p : Reservation)
+    (hp : (run lim empty ops).res r = some p)
+    (live : p.state = .reserved ∨ p.state = .dispatched) :
+    holds (run lim empty ops).counters p = true :=
+  accounting_holds _ (conservation lim ops) r p hp live
+
+/-- A live commit returns COMMITTED, so INVALID_STATE cannot arise from counters. -/
+theorem reachable_commit (lim : Id → Limit) (ops : List Op) (r : Ref) (p : Reservation)
+    (hp : (run lim empty ops).res r = some p)
+    (live : p.state = .reserved ∨ p.state = .dispatched) :
+    (commit (run lim empty ops) r).1 = .committed := by
+  have hh := reachable_holds lim ops r p hp live
+  rcases live with hs | hs <;> simp [commit, hp, hs, hh]
+
+/-- A pre-dispatch cancel returns CANCELLED. Dispatched entries still cannot cancel. -/
+theorem reachable_cancel (lim : Id → Limit) (ops : List Op) (r : Ref) (p : Reservation)
+    (hp : (run lim empty ops).res r = some p) (hs : p.state = .reserved) :
+    (cancel (run lim empty ops) r).1 = .cancelled := by
+  have hh := reachable_holds lim ops r p hp (Or.inl hs)
+  simp [cancel, hp, hs, hh]
+
+/-- A successful commit moves the amount on every ancestor and no other counter. -/
+theorem commit_all_or_none (L : Ledger) (r : Ref) (p : Reservation)
+    (hp : L.res r = some p) (h : (commit L r).1 = .committed) :
+    (commit L r).2.counters = moveCommitted L.counters p.ids p.amount := by
+  unfold commit at h ⊢
+  simp only [hp] at h ⊢
+  repeat' split
+  all_goals simp_all
+
+/-- A successful cancel releases the amount on every ancestor and no other counter. -/
+theorem cancel_all_or_none (L : Ledger) (r : Ref) (p : Reservation)
+    (hp : L.res r = some p) (h : (cancel L r).1 = .cancelled) :
+    (cancel L r).2.counters = release L.counters p.ids p.amount := by
+  unfold cancel at h ⊢
+  simp only [hp] at h ⊢
+  repeat' split
+  all_goals simp_all
+
+/-- Historical refs never disappear, including on failed calls and cancellation. -/
+theorem step_refs_mono (lim : Id → Limit) (L : Ledger) (o : Op) (r : Ref)
+    (hr : r ∈ L.refs) : r ∈ (step lim L o).2.refs := by
+  cases o <;> simp only [step, reserve, dispatch, commit, cancel, fresh] <;>
+    (repeat' split) <;> first
+    | exact hr
+    | exact (remember_mem _ _ _).2 (Or.inr hr)
+
+/-- Inductive historical-carrier growth for any suffix of an execution. -/
+theorem run_refs_mono (lim : Id → Limit) : ∀ (L : Ledger) (ops : List Op) (r : Ref),
+    r ∈ L.refs → r ∈ (run lim L ops).refs
+  | _, [], _, h => h
+  | L, o :: os, r, h => run_refs_mono lim _ os r (step_refs_mono lim L o r h)
+
 end APS.Ledger
 
 #print axioms APS.Ledger.ceiling
@@ -386,3 +700,77 @@ end APS.Ledger
 #print axioms APS.Ledger.reserve_all_or_none
 #print axioms APS.Ledger.siblings_share
 #print axioms APS.Ledger.reserve_same_footprint
+
+#print axioms APS.Ledger.inv_empty
+
+#print axioms APS.Ledger.limitCheck_none
+
+#print axioms APS.Ledger.fresh_inv
+
+#print axioms APS.Ledger.reserve_inv
+
+#print axioms APS.Ledger.dispatch_inv
+
+#print axioms APS.Ledger.holds_true
+
+#print axioms APS.Ledger.commit_inv
+
+#print axioms APS.Ledger.cancel_inv
+
+#print axioms APS.Ledger.step_inv
+
+#print axioms APS.Ledger.fresh_fail
+
+#print axioms APS.Ledger.limitCheck_not_reserved
+
+#print axioms APS.Ledger.fresh_reserved_counters
+
+#print axioms APS.Ledger.remember_mem
+
+#print axioms APS.Ledger.remember_unique
+
+#print axioms APS.Ledger.total_outside
+
+#print axioms APS.Ledger.total_replace
+
+#print axioms APS.Ledger.total_remember_replace
+
+#print axioms APS.Ledger.accounting_write
+
+#print axioms APS.Ledger.accounting_empty
+
+#print axioms APS.Ledger.fresh_accounting
+
+#print axioms APS.Ledger.reserve_accounting
+
+#print axioms APS.Ledger.dispatch_accounting
+
+#print axioms APS.Ledger.commit_accounting
+
+#print axioms APS.Ledger.cancel_accounting
+
+#print axioms APS.Ledger.step_accounting
+
+#print axioms APS.Ledger.run_accounting
+
+#print axioms APS.Ledger.conservation
+
+#print axioms APS.Ledger.conservation_counters
+
+#print axioms APS.Ledger.total_member_le
+
+#print axioms APS.Ledger.accounting_holds
+
+#print axioms APS.Ledger.reachable_holds
+
+#print axioms APS.Ledger.reachable_commit
+
+#print axioms APS.Ledger.reachable_cancel
+
+#print axioms APS.Ledger.commit_all_or_none
+
+#print axioms APS.Ledger.cancel_all_or_none
+
+#print axioms APS.Ledger.step_refs_mono
+
+#print axioms APS.Ledger.run_refs_mono
