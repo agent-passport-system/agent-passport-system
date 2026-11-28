@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Behavior change
+
+- `InMemoryAuthorityBudgetLedger.reserve`: under an `action_ref` whose reservation was cancelled, a request with a different unit, amount or set of bounded ancestors now returns `CONFLICT`, as draft-pidlisnyi-aps-04 section 4.4 requires. Earlier releases treated any request after cancellation as a fresh reservation. A request with the same footprint still reserves again, with every limit checked against the current counters. The ancestor set is compared without regard to order. A failed reserve leaves every counter and reservation unchanged.
+
 ## 8.1.1 (2026-11-16)
 
 - 8.1.0 was tagged but never published. The release workflow's `npm audit --audit-level=high` step failed on GHSA-mrhx-c7xc-m3w5 in zod 4.6.5, so the publish and release jobs did not run. zod is a development dependency only and is not shipped in the package. This release moves it to 4.6.7. The library code is the same as the 8.1.0 tag, so the 8.1.0 notes below describe this release.
