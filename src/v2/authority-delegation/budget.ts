@@ -93,9 +93,12 @@ export class InMemoryAuthorityBudgetLedger {
     // so it falls through to every limit check and the all-ancestors update below.
     const prior = this.reservations.get(actionRef)
     if (prior) {
+      // The footprint contains a set. Compare copies without changing chain order.
+      const priorIds = [...prior.delegationIds].sort()
+      const currentIds = [...ids].sort()
       const identical = prior.unit === unit && prior.amount === amount &&
-        prior.delegationIds.length === ids.length &&
-        prior.delegationIds.every((id, index) => id === ids[index])
+        priorIds.length === currentIds.length &&
+        priorIds.every((id, index) => id === currentIds[index])
       if (!identical) return { ok: false, code: 'CONFLICT', state: prior.state }
       if (prior.state !== 'cancelled') return { ok: true, code: 'IDEMPOTENT', state: prior.state }
     }

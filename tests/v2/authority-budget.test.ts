@@ -17,6 +17,12 @@ import {
 } from '../../src/v2/authority-delegation/index.js'
 import type { AuthorityDelegationBodyV1, AuthorityDelegationV1 } from '../../src/v2/authority-delegation/index.js'
 
+function ledgerSnapshot(ledger: InMemoryAuthorityBudgetLedger) {
+  // counter() cannot enumerate IDs or read reservations. Deep-copy both internal
+  // maps so every counter and every reservation record participates in equality.
+  return structuredClone({ counters: ledger['counters'], reservations: ledger['reservations'] })
+}
+
 function root(): {
   delegation: AuthorityDelegationV1
   subjectKey: ReturnType<typeof generateKeyPair>
@@ -139,6 +145,7 @@ test('a reserve retried after its cancellation books a fresh reservation, and th
   assert.deepEqual(ledger.counter(parent.delegation_id), { reserved: '60', committed: '0' })
   assert.equal(ledger.cancel(first).code, 'CANCELLED')
   assert.deepEqual(ledger.counter(parent.delegation_id), { reserved: '0', committed: '0' })
+  assert.deepEqual(ledger.counter(leaf.delegation_id), { reserved: '0', committed: '0' })
 
   // The cancelled reservation holds nothing, so this call is a new reservation, not an
   // idempotent repeat of one: what it reports is what the counters hold.
@@ -146,12 +153,15 @@ test('a reserve retried after its cancellation books a fresh reservation, and th
   assert.equal(retry.ok, true)
   assert.equal(retry.code, 'RESERVED')
   assert.deepEqual(ledger.counter(parent.delegation_id), { reserved: '60', committed: '0' })
+  assert.deepEqual(ledger.counter(leaf.delegation_id), { reserved: '60', committed: '0' })
 
   // A second action_ref cannot now take the rest of a ceiling the retry holds.
+  const before = ledgerSnapshot(ledger)
   assert.deepEqual(
     ledger.reserve([parent, leaf], second, 'iso4217:USD:minor', '60'),
     { ok: false, code: 'CUMULATIVE_EXCEEDED' },
   )
+  assert.deepEqual(ledgerSnapshot(ledger), before)
   assert.equal(ledger.commit(first).ok, true)
   assert.deepEqual(ledger.counter(parent.delegation_id), { reserved: '0', committed: '60' })
 })
@@ -201,15 +211,15 @@ for (const state of ['reserved', 'dispatched', 'committed', 'cancelled'] as cons
     if (state === 'dispatched') assert.equal(ledger.markDispatched(actionRef).code, 'DISPATCHED')
     if (state === 'committed') assert.equal(ledger.commit(actionRef).code, 'COMMITTED')
     if (state === 'cancelled') assert.equal(ledger.cancel(actionRef).code, 'CANCELLED')
-    const before = [parent, left, right].map(item => ledger.counter(item.delegation_id))
     for (const [chain, changedUnit, amount] of [
       [[parent, left], unit, '26'],
       [[parent, left], 'iso4217:EUR:minor', '25'],
       [[parent, right], unit, '25'],
       [[parent], unit, '25'],
     ] as const) {
+      const before = ledgerSnapshot(ledger)
       assert.deepEqual(ledger.reserve(chain, actionRef, changedUnit, amount), { ok: false, code: 'CONFLICT', state })
-      assert.deepEqual([parent, left, right].map(item => ledger.counter(item.delegation_id)), before)
+      assert.deepEqual(ledgerSnapshot(ledger), before)
     }
     assert.deepEqual(ledger.reserve([parent, left], actionRef, unit, '25'), {
       ok: true, code: state === 'cancelled' ? 'RESERVED' : 'IDEMPOTENT',
@@ -221,6 +231,23 @@ for (const state of ['reserved', 'dispatched', 'committed', 'cancelled'] as cons
     assert.deepEqual(ledger.counter(left.delegation_id), ledger.counter(parent.delegation_id))
   })
 }
+
+test('a cancelled reservation refuses reordered records before comparing the ancestor set', () => {
+  const { delegation: parent, subjectKey, resolveRootKey } = root()
+  const leaf = child(parent, resolveRootKey, subjectKey, 'did:example:leaf', '4'.repeat(32))
+  const ledger = new InMemoryAuthorityBudgetLedger()
+  const actionRef = 'a'.repeat(64)
+  const unit = 'iso4217:USD:minor'
+  assert.equal(ledger.reserve([parent, leaf], actionRef, unit, '25').code, 'RESERVED')
+  assert.equal(ledger.cancel(actionRef).code, 'CANCELLED')
+
+  // A reordered list of the same records is not a valid root-to-leaf chain.
+  // reserve rejects its linkage before the footprint check. Order-insensitive
+  // comparison matters only for implementations that pass ancestor sets directly.
+  const before = ledgerSnapshot(ledger)
+  assert.deepEqual(ledger.reserve([leaf, parent], actionRef, unit, '25'), { ok: false, code: 'CONFLICT' })
+  assert.deepEqual(ledgerSnapshot(ledger), before)
+})
 
 for (const competingState of ['reserved', 'committed'] as const) {
   test(`a cancelled reservation rechecks limits against ${competingState} spend before reserving again`, () => {
@@ -234,12 +261,15 @@ for (const competingState of ['reserved', 'committed'] as const) {
     assert.equal(ledger.cancel(actionRef).code, 'CANCELLED')
     assert.equal(ledger.reserve([parent], other, unit, '50').code, 'RESERVED')
     if (competingState === 'committed') assert.equal(ledger.commit(other).code, 'COMMITTED')
-    const before = ledger.counter(parent.delegation_id)
+    const before = ledgerSnapshot(ledger)
     assert.deepEqual(ledger.reserve([parent, leaf], actionRef, unit, '60'), { ok: false, code: 'CUMULATIVE_EXCEEDED' })
-    assert.deepEqual(ledger.counter(parent.delegation_id), before)
+    assert.deepEqual(ledgerSnapshot(ledger), before)
+    assert.equal(ledgerSnapshot(ledger).reservations.get(actionRef)?.state, 'cancelled')
     assert.deepEqual(ledger.counter(leaf.delegation_id), { reserved: '0', committed: '0' })
     // A failed retry keeps the original cancelled footprint bound to the action_ref.
+    const beforeConflict = ledgerSnapshot(ledger)
     assert.deepEqual(ledger.reserve([parent, leaf], actionRef, unit, '40'), { ok: false, code: 'CONFLICT', state: 'cancelled' })
+    assert.deepEqual(ledgerSnapshot(ledger), beforeConflict)
     if (competingState === 'reserved') {
       assert.equal(ledger.cancel(other).code, 'CANCELLED')
       assert.deepEqual(ledger.reserve([parent, leaf], actionRef, unit, '60'), { ok: true, code: 'RESERVED', state: 'reserved' })
