@@ -10,7 +10,7 @@ either bound is present but not an RFC 3339 instant, or when `valid_from` is lat
 `valid_until`. Validate the delegation first, or catch the error. `verifyAp2Mandate`
 rejects a mandate whose `iat` is later than its `exp`, whose bounds are not integer seconds
 in RFC 3339 range (a millisecond value is out of range), or whose envelope timestamp is not
-an RFC 3339 instant. `clock_skew_seconds` must be a finite non-negative number.
+an RFC 3339 instant. `clock_skew_seconds` must be a finite non-negative number. AP2 bounds are seconds from 1970 up to the end of 9999, so a `valid_from` before 1970 can no longer be converted.
 
 `checkClockSkew` has a new verdict, `malformed`. Treat any verdict other than `valid` as a
 rejection.
