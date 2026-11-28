@@ -188,3 +188,63 @@ test('a string unit on an unbounded chain reserves, repeats idempotently, and co
   assert.equal(ledger.reserve([delegation], actionRef, 'iso4217:USD:minor', '1').code, 'IDEMPOTENT')
   assert.equal(ledger.reserve([delegation], actionRef, 'iso4217:USD:minor', '2').code, 'CONFLICT')
 })
+
+for (const state of ['reserved', 'dispatched', 'committed', 'cancelled'] as const) {
+  test(`a ${state} reservation rejects changes to its unit, amount or bounded ancestor set`, () => {
+    const { delegation: parent, subjectKey, resolveRootKey } = root()
+    const left = child(parent, resolveRootKey, subjectKey, 'did:example:left', '2'.repeat(32))
+    const right = child(parent, resolveRootKey, subjectKey, 'did:example:right', '3'.repeat(32))
+    const ledger = new InMemoryAuthorityBudgetLedger()
+    const actionRef = 'a'.repeat(64)
+    const unit = 'iso4217:USD:minor'
+    assert.equal(ledger.reserve([parent, left], actionRef, unit, '25').code, 'RESERVED')
+    if (state === 'dispatched') assert.equal(ledger.markDispatched(actionRef).code, 'DISPATCHED')
+    if (state === 'committed') assert.equal(ledger.commit(actionRef).code, 'COMMITTED')
+    if (state === 'cancelled') assert.equal(ledger.cancel(actionRef).code, 'CANCELLED')
+    const before = [parent, left, right].map(item => ledger.counter(item.delegation_id))
+    for (const [chain, changedUnit, amount] of [
+      [[parent, left], unit, '26'],
+      [[parent, left], 'iso4217:EUR:minor', '25'],
+      [[parent, right], unit, '25'],
+      [[parent], unit, '25'],
+    ] as const) {
+      assert.deepEqual(ledger.reserve(chain, actionRef, changedUnit, amount), { ok: false, code: 'CONFLICT', state })
+      assert.deepEqual([parent, left, right].map(item => ledger.counter(item.delegation_id)), before)
+    }
+    assert.deepEqual(ledger.reserve([parent, left], actionRef, unit, '25'), {
+      ok: true, code: state === 'cancelled' ? 'RESERVED' : 'IDEMPOTENT',
+      state: state === 'cancelled' ? 'reserved' : state,
+    })
+    assert.deepEqual(ledger.counter(parent.delegation_id), {
+      reserved: state === 'committed' ? '0' : '25', committed: state === 'committed' ? '25' : '0',
+    })
+    assert.deepEqual(ledger.counter(left.delegation_id), ledger.counter(parent.delegation_id))
+  })
+}
+
+for (const competingState of ['reserved', 'committed'] as const) {
+  test(`a cancelled reservation rechecks limits against ${competingState} spend before reserving again`, () => {
+    const { delegation: parent, subjectKey, resolveRootKey } = root()
+    const leaf = child(parent, resolveRootKey, subjectKey, 'did:example:leaf', '4'.repeat(32))
+    const ledger = new InMemoryAuthorityBudgetLedger()
+    const actionRef = 'a'.repeat(64)
+    const other = 'b'.repeat(64)
+    const unit = 'iso4217:USD:minor'
+    assert.equal(ledger.reserve([parent, leaf], actionRef, unit, '60').code, 'RESERVED')
+    assert.equal(ledger.cancel(actionRef).code, 'CANCELLED')
+    assert.equal(ledger.reserve([parent], other, unit, '50').code, 'RESERVED')
+    if (competingState === 'committed') assert.equal(ledger.commit(other).code, 'COMMITTED')
+    const before = ledger.counter(parent.delegation_id)
+    assert.deepEqual(ledger.reserve([parent, leaf], actionRef, unit, '60'), { ok: false, code: 'CUMULATIVE_EXCEEDED' })
+    assert.deepEqual(ledger.counter(parent.delegation_id), before)
+    assert.deepEqual(ledger.counter(leaf.delegation_id), { reserved: '0', committed: '0' })
+    // A failed retry keeps the original cancelled footprint bound to the action_ref.
+    assert.deepEqual(ledger.reserve([parent, leaf], actionRef, unit, '40'), { ok: false, code: 'CONFLICT', state: 'cancelled' })
+    if (competingState === 'reserved') {
+      assert.equal(ledger.cancel(other).code, 'CANCELLED')
+      assert.deepEqual(ledger.reserve([parent, leaf], actionRef, unit, '60'), { ok: true, code: 'RESERVED', state: 'reserved' })
+      assert.deepEqual(ledger.counter(parent.delegation_id), { reserved: '60', committed: '0' })
+      assert.deepEqual(ledger.counter(leaf.delegation_id), { reserved: '60', committed: '0' })
+    }
+  })
+}

@@ -87,27 +87,17 @@ export class InMemoryAuthorityBudgetLedger {
     const amount = BigInt(amountString)
     const bounded = chain.filter(item => item.authority.spend.mode === 'bounded')
     const ids = bounded.map(item => item.delegation_id)
-    // A cancelled reservation holds nothing: its amount was released from every
-    // bounded ancestor's counter. Reporting a retry of it as idempotent would tell a
-    // boundary that q is reserved when no counter holds it, and two such calls could
-    // dispatch twice against one signed cumulative ceiling, which draft
-    // draft-pidlisnyi-aps-03 lines 602-607 require to be reserved "against every
-    // bounded ancestor or against none". A call naming a cancelled action_ref is
-    // therefore treated as the fresh reservation it is: every limit is checked again
-    // and the cancelled record is replaced. Provisional: the draft says only that an
-    // identical retry is idempotent and conflicting reuse is rejected (lines 621-622),
-    // and does not say which of those a retry after cancellation is, so refusing it
-    // outright would be defensible too. This choice keeps a boundary able to retry
-    // after releasing, and it can never report a reservation it does not hold. Pending
-    // a protocol ruling.
+    // draft-pidlisnyi-aps-04 section 4.4 keeps the footprint bound to action_ref
+    // after cancellation: a different unit, amount or bounded ancestor set conflicts.
+    // The same footprint must reserve again because cancellation released its counters,
+    // so it falls through to every limit check and the all-ancestors update below.
     const prior = this.reservations.get(actionRef)
-    if (prior && prior.state !== 'cancelled') {
+    if (prior) {
       const identical = prior.unit === unit && prior.amount === amount &&
         prior.delegationIds.length === ids.length &&
         prior.delegationIds.every((id, index) => id === ids[index])
-      return identical
-        ? { ok: true, code: 'IDEMPOTENT', state: prior.state }
-        : { ok: false, code: 'CONFLICT', state: prior.state }
+      if (!identical) return { ok: false, code: 'CONFLICT', state: prior.state }
+      if (prior.state !== 'cancelled') return { ok: true, code: 'IDEMPOTENT', state: prior.state }
     }
 
     for (const delegation of bounded) {
