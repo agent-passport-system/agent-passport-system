@@ -229,3 +229,24 @@ describe('checkClockSkew refuses an unusable skew and a reversed window', () => 
     assert.equal(checkClockSkew({ iat: '2026-06-01T00:00:01.000Z', exp: '2026-05-31T23:59:59.000Z', now }).verdict, 'malformed')
   })
 })
+
+describe('round 3: preAuthorize clock, reverse window without iat, pre-1970 and sub-second reversal', () => {
+  it('preAuthorize refuses an Invalid Date clock', async () => {
+    const { preAuthorize } = await import('../../src/v2/payment-rails/hooks.js')
+    const rail: any = { isWalletRevoked: () => false }
+    const d: any = { wallet_id: 'w', scope: ['commerce.purchase'], spend_limit_base_units: '100', currency: 'USD', not_after: '2026-01-02T00:00:00.000Z' }
+    const r = preAuthorize({ delegation: d, required_scope: 'commerce.purchase', amount_base_units: '1', currency: 'USD', now: new Date('x') } as any, rail)
+    assert.equal(r.ok, false)
+  })
+  it('the reverse conversion refuses created_at later than exp when iat is absent', () => {
+    const m: any = apsToAp2IntentMandate(intent(), { currency: 'USD' })
+    delete m.iat
+    assert.throws(() => ap2MandateToApsDelegation(m, { delegator_did: 'did:aps:user', delegation_id: 'd', created_at: '2099-01-01T00:00:00.000Z' } as any), /later than valid_until/)
+  })
+  it('a pre-1970 valid_from is refused by the converter', () => {
+    assert.throws(() => apsToAp2IntentMandate(intent({ valid_from: '1969-12-31T23:59:59.000Z' }), { currency: 'USD' }), /before 1970/)
+  })
+  it('a reversal inside one second is refused', () => {
+    assert.throws(() => apsToAp2IntentMandate(intent({ valid_from: '2026-06-01T00:00:00.900Z', valid_until: '2026-06-01T00:00:00.400Z' }), { currency: 'USD' }), /later than valid_until/)
+  })
+})

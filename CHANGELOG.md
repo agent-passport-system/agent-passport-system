@@ -9,6 +9,7 @@
 
 ### Corrections
 
+- `preAuthorize`, the shared payment authorization check of the foundation rails, refuses an invalid `now` instead of comparing every time bound against `NaN`.
 - `isConfirmationValid` reads `expires_at` with `parseRfc3339`, so an impossible expiry such as February 30 is not valid on the day it would roll into.
 - `checkClockSkew` reports `malformed` for an unreadable bound, an unreadable clock, an unusable skew or a reversed window.
 - Read fidelity receipt timestamps are checked as real instants.

@@ -149,7 +149,7 @@ function _verifyOwnerConfirmationAgainstView(
     return { valid: false, reason: 'confirmed_by is not the delegator' }
   }
   const confirmationExpiry = parseRfc3339(confirmation.expires_at)
-  if (!confirmationExpiry.ok || now.getTime() > confirmationExpiry.ms) {
+  if (!confirmationExpiry.ok || !Number.isFinite(now.getTime()) || now.getTime() > confirmationExpiry.ms) {
     return { valid: false, reason: 'confirmation expired' }
   }
   if (confirmation.action_class !== action_class) {
@@ -201,6 +201,12 @@ export function preAuthorize(
   rail: PaymentRail,
 ): PreAuthorizeResult {
   const { delegation, required_scope, amount_base_units, currency } = input
+
+  // An unreadable clock turns every window and confirmation comparison below
+  // into a NaN comparison that never denies. Refuse it before any of them.
+  if (input.now !== undefined && !(input.now instanceof Date && Number.isFinite(input.now.getTime()))) {
+    return { ok: false, denial_reason: 'time_window_violation', reason_detail: 'now must be a valid Date' }
+  }
 
   if (rail.isWalletRevoked(delegation.wallet_id)) {
     return { ok: false, denial_reason: 'wallet_revoked' }
