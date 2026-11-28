@@ -10,6 +10,7 @@
 
 import { createHash } from 'node:crypto'
 import { canonicalize, canonicalizeForWrite } from '../../core/canonical.js'
+import { parseRfc3339 } from '../../core/rfc3339.js'
 import type {
   AttributionAxes,
   AttributionAxisTag,
@@ -46,13 +47,26 @@ export function toWeightString(value: number | string): string {
 }
 
 /** Reject timestamps that a lenient parser would accept but §2.5 forbids.
- *  Forces ISO-8601 UTC with millisecond precision and literal Z suffix. */
+ *  Forces ISO-8601 UTC with millisecond precision and literal Z suffix, and a
+ *  real instant: every field in range, a day that exists in its month, no
+ *  hour 24 and no second 60. A shape-only check let values such as seconds 99
+ *  through, and Date.parse then returned NaN, which made every period
+ *  comparison false. */
 export function assertCanonicalTimestamp(ts: string): void {
-  if (!ISO_8601_MS_PATTERN.test(ts)) {
+  canonicalTimestampMs(ts)
+}
+
+/** Validate a canonical timestamp as {@link assertCanonicalTimestamp} does and
+ *  return its instant in milliseconds. Throws on any value that is not a real
+ *  instant, so a caller never compares against NaN. */
+export function canonicalTimestampMs(ts: string): number {
+  const parsed = typeof ts === 'string' && ISO_8601_MS_PATTERN.test(ts) ? parseRfc3339(ts) : undefined
+  if (!parsed || !parsed.ok) {
     throw new Error(
-      `attribution-primitive: timestamp "${ts}" must be ISO-8601 UTC with millisecond precision and trailing Z (§2.5)`,
+      `attribution-primitive: timestamp "${ts}" must be ISO-8601 UTC with millisecond precision and trailing Z, naming a real instant (§2.5)`,
     )
   }
+  return parsed.ms
 }
 
 /** Produce the canonical timestamp for "now" or a supplied Date. Spec §2.5

@@ -16,6 +16,7 @@
 import { createHash } from 'node:crypto'
 
 import { canonicalizeJCS, canonicalizeJCSForWrite } from '../../core/canonical-jcs.js'
+import { parseRfc3339 } from '../../core/rfc3339.js'
 import { sign, verify as edVerify, publicKeyFromPrivate } from '../../crypto/keys.js'
 
 import { commitSpans, deriveSeed, sampleSpans, scoreResponses } from './sampler.js'
@@ -27,6 +28,7 @@ import type {
   VerifyAgainstSourceResult,
   VerifyResponsesResult,
 } from './types.js'
+
 
 const DIGEST_RE = /^sha256:[0-9a-f]{64}$/
 const HEX64_RE = /^[0-9a-f]{64}$/
@@ -119,7 +121,7 @@ function shapeReason(value: unknown): ReadFidelityVerifyReason | null {
     'receipt_issued_at',
   ] as const) {
     const t = r[field]
-    if (typeof t !== 'string' || !ISO_8601_RE.test(t)) return 'INVALID_TIMESTAMP'
+    if (typeof t !== 'string' || !ISO_8601_RE.test(t) || !parseRfc3339(t).ok) return 'INVALID_TIMESTAMP'
   }
   if ('lexicon_id' in r || 'lexicon_profile' in r) {
     if (typeof r.lexicon_id !== 'string' || !DIGEST_RE.test(r.lexicon_id)) {

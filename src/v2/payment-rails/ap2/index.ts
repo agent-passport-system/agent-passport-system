@@ -53,6 +53,7 @@ function _ap2SignerFor(
   return publicKeyFromPrivate(privateKeyHex)
 }
 import { verifyOwnerConfirmation } from '../../human-escalation.js'
+import { parseRfc3339 } from '../../../core/rfc3339.js'
 import type { OwnerConfirmation, V2Delegation } from '../../types.js'
 import { resolveSpendLimitCents } from '../scope-resolution.js'
 import {
@@ -121,12 +122,16 @@ export { AP2_VERSION } from './types.js'
 
 // ── Helpers ───────────────────────────────────────────────────────
 
-/** ISO 8601 string → Unix epoch seconds. Returns undefined on parse fail. */
-function _isoToUnixSeconds(iso: string | undefined): number | undefined {
+/** RFC 3339 string → Unix epoch seconds. An absent bound stays absent. A
+ *  present bound that is not a real RFC 3339 instant throws: dropping it would
+ *  emit a mandate with no iat or exp, which verifyAp2Mandate reads as no limit. */
+function _isoToUnixSeconds(iso: string | undefined, field: string): number | undefined {
   if (iso === undefined) return undefined
-  const ms = Date.parse(iso)
-  if (Number.isNaN(ms)) return undefined
-  return Math.floor(ms / 1000)
+  const parsed = parseRfc3339(iso)
+  if (!parsed.ok) {
+    throw new Error(`apsToAp2: policy_context.${field} is not an RFC 3339 instant (${parsed.reason})`)
+  }
+  return Math.floor(parsed.ms / 1000)
 }
 
 /** Unix epoch seconds → ISO 8601 with milliseconds + Z. */
@@ -286,8 +291,8 @@ export function apsToAp2IntentMandate(
     constraints,
     cnf: _cnfFromEd25519Pubkey(delegation.delegatee),
   }
-  const iat = _isoToUnixSeconds(delegation.policy_context.valid_from)
-  const exp = _isoToUnixSeconds(delegation.policy_context.valid_until)
+  const iat = _isoToUnixSeconds(delegation.policy_context.valid_from, 'valid_from')
+  const exp = _isoToUnixSeconds(delegation.policy_context.valid_until, 'valid_until')
   if (iat !== undefined) mandate.iat = iat
   if (exp !== undefined) mandate.exp = exp
   return mandate
@@ -346,8 +351,8 @@ export function apsToAp2CartMandate(
     total: cart.total,
     cnf: _cnfFromEd25519Pubkey(delegation.delegatee),
   }
-  const iat = _isoToUnixSeconds(delegation.policy_context.valid_from)
-  const exp = _isoToUnixSeconds(delegation.policy_context.valid_until)
+  const iat = _isoToUnixSeconds(delegation.policy_context.valid_from, 'valid_from')
+  const exp = _isoToUnixSeconds(delegation.policy_context.valid_until, 'valid_until')
   if (iat !== undefined) mandate.iat = iat
   if (exp !== undefined) mandate.exp = exp
   return mandate
@@ -402,8 +407,8 @@ export function apsToAp2PaymentMandate(
   if (opts.pisp !== undefined) mandate.pisp = opts.pisp
   if (opts.execution_date !== undefined) mandate.execution_date = opts.execution_date
   if (opts.risk_data !== undefined) mandate.risk_data = opts.risk_data
-  const iat = _isoToUnixSeconds(delegation.policy_context.valid_from)
-  const exp = _isoToUnixSeconds(delegation.policy_context.valid_until)
+  const iat = _isoToUnixSeconds(delegation.policy_context.valid_from, 'valid_from')
+  const exp = _isoToUnixSeconds(delegation.policy_context.valid_until, 'valid_until')
   if (iat !== undefined) mandate.iat = iat
   if (exp !== undefined) mandate.exp = exp
   return mandate
@@ -467,8 +472,8 @@ export function apsToAp2OpenPaymentMandate(
     constraints,
     cnf: _cnfFromEd25519Pubkey(delegation.delegatee),
   }
-  const iat = _isoToUnixSeconds(delegation.policy_context.valid_from)
-  const exp = _isoToUnixSeconds(delegation.policy_context.valid_until)
+  const iat = _isoToUnixSeconds(delegation.policy_context.valid_from, 'valid_from')
+  const exp = _isoToUnixSeconds(delegation.policy_context.valid_until, 'valid_until')
   if (iat !== undefined) mandate.iat = iat
   if (exp !== undefined) mandate.exp = exp
   return mandate
@@ -748,6 +753,14 @@ export function verifyAp2Mandate(
   const nowSec = Math.floor(now.getTime() / 1000)
   const iat = (mandate as { iat?: number }).iat
   const exp = (mandate as { exp?: number }).exp
+  // A present iat or exp must be an integer count of seconds. Any other value
+  // (a string, NaN, null) would make both comparisons below false and skip the
+  // check, so it is refused instead of read as no bound.
+  for (const [name, v] of [['iat', iat], ['exp', exp]] as const) {
+    if (v !== undefined && !Number.isSafeInteger(v)) {
+      return { valid: false, reason: 'MISSING_REQUIRED_FIELD', detail: `${name} must be an integer count of seconds` }
+    }
+  }
   if (iat !== undefined && iat > nowSec + skew) {
     return { valid: false, reason: 'NOT_YET_VALID', detail: `iat=${iat} > now+skew=${nowSec + skew}` }
   }

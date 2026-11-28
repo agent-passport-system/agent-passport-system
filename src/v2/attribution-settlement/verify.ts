@@ -22,6 +22,7 @@ import { createHash } from 'node:crypto'
 import { canonicalize } from '../../core/canonical.js'
 import {
   assertCanonicalTimestamp,
+  canonicalTimestampMs,
 } from '../attribution-primitive/canonical.js'
 import { verifyAttributionPrimitive } from '../attribution-primitive/verify.js'
 import type {
@@ -74,7 +75,7 @@ function isMalformed(record: SettlementRecord): string | null {
   } catch (e) {
     return (e as Error).message
   }
-  if (Date.parse(record.period.t0) >= Date.parse(record.period.t1)) {
+  if (canonicalTimestampMs(record.period.t0) >= canonicalTimestampMs(record.period.t1)) {
     return 'period.t0 must precede period.t1'
   }
   if (!record.axes || typeof record.axes !== 'object') return 'axes required'
@@ -222,8 +223,8 @@ export function verifySettlementRecord(
 
   // S5 (optional): cross-check against the input receipt set.
   if (options.inputReceipts) {
-    const t0 = Date.parse(record.period.t0)
-    const t1 = Date.parse(record.period.t1)
+    const t0 = canonicalTimestampMs(record.period.t0)
+    const t1 = canonicalTimestampMs(record.period.t1)
     const refs: string[] = []
     for (const r of options.inputReceipts) {
       try {
@@ -231,7 +232,7 @@ export function verifySettlementRecord(
       } catch (e) {
         return fail('MALFORMED', `inputReceipts entry has invalid timestamp: ${(e as Error).message}`)
       }
-      const ts = Date.parse(r.timestamp)
+      const ts = canonicalTimestampMs(r.timestamp)
       if (ts < t0 || ts >= t1) {
         return fail('RECEIPT_OUT_OF_PERIOD', `receipt ${r.action_ref} timestamp ${r.timestamp} outside period`)
       }
